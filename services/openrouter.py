@@ -229,6 +229,24 @@ ANOMALY_TOOL = {
 }
 
 
+
+COCKPIT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "updated_cockpit",
+        "description": "Return the updated daily cockpit markdown document",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "cockpit_markdown": {"type": "string", "description": "The complete updated cockpit markdown"},
+                "projects_updated": {"type": "array", "items": {"type": "string"}, "description": "Names of projects that were updated"},
+                "new_projects_added": {"type": "array", "items": {"type": "string"}, "description": "Any new projects added to the cockpit"},
+            },
+            "required": ["cockpit_markdown", "projects_updated"]
+        }
+    }
+}
+
 class OpenRouterClient:
     """OpenRouter API client with model routing and escalation."""
 
@@ -386,7 +404,40 @@ class OpenRouterClient:
         return self.call_with_escalation("triage", messages, tools=[TRIAGE_TOOL], tool_choice={"type": "function", "function": {"name": "triage_result"}})
 
     def compress_master_context(self, current_master: str, triage_result: dict, session_data: dict) -> Optional[dict]:
-        messages = [{"role": "user", "content": f"Update the master context based on triage decisions.\n\nCurrent:\n{current_master}\n\nTriage:\n{json.dumps(triage_result, indent=2, default=str)}\n\nSession:\n{json.dumps(session_data, indent=2, default=str)}\n\nKeep concise and actionable. Use compressed_master_context tool."}]
+        from config import get_dynamic_budget
+        budget = get_dynamic_budget()
+        budget_tokens = budget // 4  # rough chars-to-tokens
+
+        prompt = f"""Update the master context based on triage decisions.
+
+TARGET SIZE: Keep the output under {budget} characters (~{budget_tokens} tokens).
+
+PRIORITY RULES (what must survive compression):
+1. Infrastructure facts: ports, containers, IPs, domains, service names — NEVER drop these
+2. Active project status and blockers
+3. Recent decisions and their rationale
+4. Known issues and failures
+5. Entity relationships (people, tools, services)
+
+COMPRESSION RULES:
+- Archive completed work to ChromaDB (don't keep in master)
+- Merge duplicate project entries
+- Remove resolved issues
+- Condense verbose descriptions
+- Keep source attribution on decisions (who decided what)
+
+Current master context:
+{current_master}
+
+Triage result:
+{json.dumps(triage_result, indent=2, default=str)}
+
+New session:
+{json.dumps(session_data, indent=2, default=str)}
+
+Use compressed_master_context tool."""
+
+        messages = [{"role": "user", "content": prompt}]
         return self.call_with_escalation("master_compression", messages, tools=[MASTER_COMPRESS_TOOL], tool_choice={"type": "function", "function": {"name": "compressed_master_context"}})
 
     def extract_from_transcript(self, transcript: str, note: str) -> Optional[dict]:
@@ -421,6 +472,45 @@ class OpenRouterClient:
         result = self.call_with_escalation("anomaly_detection", messages, tools=[ANOMALY_TOOL], tool_choice={"type": "function", "function": {"name": "detected_anomalies"}})
         return result.get("anomalies", []) if result else []
 
+
+    def update_cockpit(self, current_cockpit: str, session_data: dict) -> Optional[dict]:
+        """Update the daily cockpit with session data."""
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).strftime("%B %d, %Y")
+        session_json = json.dumps(session_data, indent=2, default=str)[:4000]
+        prompt = f"""Update this daily project cockpit based on the completed session.
+
+Rules:
+- Update the "Last Updated" date to {today}
+- Find and update ANY project sections that match the session's work (match by tags, files, summary content)
+- Update "Last touched" dates, "Last action", "Next" steps, health indicators
+- If session mentions a project NOT in the cockpit, add it under ACTIVE BUILDS
+- Update the SESSION LOG table (keep last 5 entries, add this session at top)
+- Update INFRASTRUCTURE ALERTS if session mentions fixes or new issues
+- Update WAITING ON RYAN if session resolves or adds blocked items
+- Move projects to STALE (3+ days untouched) or COLD (7+ days) based on dates
+- Move completed projects to NOT ACTIVE (parked)
+- Health indicators: 🟢 active (touched today), 🟡 stale (3+ days), 🔴 cold/blocked (7+ days or broken)
+- PRESERVE all projects/sections not affected by this session
+- Keep the exact same markdown format and section structure
+
+Current cockpit:
+---
+{current_cockpit}
+---
+
+Session just completed:
+---
+{session_json}
+---
+
+Return the COMPLETE updated cockpit markdown via the updated_cockpit tool."""
+        messages = [{"role": "user", "content": prompt}]
+        return self.call_with_escalation(
+            "cockpit_update", messages,
+            tools=[COCKPIT_TOOL],
+            tool_choice={"type": "function", "function": {"name": "updated_cockpit"}}
+        )
     @property
     def stats(self) -> dict:
         return {"calls": self._call_count, "estimated_cost": self._total_cost, "backend": self.backend}

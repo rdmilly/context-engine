@@ -30,6 +30,12 @@ class LoadRequest(BaseModel):
         description="Optional topic to focus context retrieval on. "
                     "If provided, searches archive for relevant hits.",
     )
+    source: Optional[str] = Field(
+        None,
+        description="Source identifier (e.g. 'claude-ai', 'jerry', 'n8n'). "
+                    "Archive search results are weighted toward this source's history. "
+                    "Master context is always shared across all sources.",
+    )
 
 
 class SaveRequest(BaseModel):

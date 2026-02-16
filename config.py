@@ -51,6 +51,7 @@ TASK_MODELS = {
     "decision_extraction": _MODEL_SMART,
     "master_compression": _MODEL_SMART,
     "pattern_analysis": _MODEL_SMART,
+    "cockpit_update": _MODEL_FAST,
 }
 
 # ─── LLM Backend Selection ─────────────────────────────────
@@ -66,6 +67,7 @@ OLLAMA_TASK_MODELS = {
     "failure_extraction": os.environ.get("OLLAMA_MODEL_LIGHT", "llama3.2:3b"),
     "triage": os.environ.get("OLLAMA_MODEL_LIGHT", "llama3.2:3b"),
     "anomaly_detection": os.environ.get("OLLAMA_MODEL_LIGHT", "llama3.2:3b"),
+    "cockpit_update": os.environ.get("OLLAMA_MODEL_LIGHT", "llama3.2:3b"),
     "decision_extraction": os.environ.get("OLLAMA_MODEL_HEAVY", "llama3.1:8b"),
     "master_compression": os.environ.get("OLLAMA_MODEL_HEAVY", "llama3.1:8b"),
     "pattern_analysis": os.environ.get("OLLAMA_MODEL_HEAVY", "llama3.1:8b"),
@@ -126,8 +128,14 @@ def resolve_collection_name(name: str) -> str:
     return "project_archive"
 
 # ─── Token Budget ──────────────────────────────────────────────
-MAX_MASTER_CONTEXT_CHARS = 8000   # ~2000 tokens, triggers compression if exceeded
-MAX_LOAD_RESPONSE_CHARS = 12000   # ~3000 tokens, truncates archive hits if exceeded
+# ─── Context Budget (dynamic) ──────────────────────────────────
+# Base budget for master context. Grows with active projects/sources.
+MASTER_CONTEXT_BASE_CHARS = 20000    # ~5000 tokens base
+MASTER_CONTEXT_MAX_CHARS = 32000     # ~8000 tokens ceiling
+MASTER_CONTEXT_PER_PROJECT = 2000    # +500 tokens per active project
+MASTER_CONTEXT_PER_SOURCE = 1500     # +375 tokens per active source
+
+MAX_LOAD_RESPONSE_CHARS = 40000      # ~10000 tokens, master + archive hits
 LEARNING_MODE_THRESHOLD = 20      # Sessions before learning mode disables
 
 # ─── Transcripts ──────────────────────────────────────────────
@@ -143,3 +151,39 @@ WATCH_TRANSCRIPT_DIR = os.environ.get("WATCH_TRANSCRIPT_DIR", "")
 WATCH_DEBOUNCE_SECONDS = int(os.environ.get("WATCH_DEBOUNCE_SECONDS", "10"))
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+def get_dynamic_budget() -> int:
+    """Calculate current master context budget based on active projects and sources."""
+    budget = MASTER_CONTEXT_BASE_CHARS
+
+    # Count active projects from master context
+    try:
+        from services import kb_gateway
+        mc = kb_gateway.read_master_context()
+        if mc:
+            import re
+            # Count ### headings in Active Projects section
+            projects_section = re.search(r'## Active Projects(.*?)## ', mc, re.DOTALL)
+            if projects_section:
+                project_count = len(re.findall(r'### ', projects_section.group(1)))
+                budget += project_count * MASTER_CONTEXT_PER_PROJECT
+    except Exception:
+        pass
+
+    # Count active sources from recent sessions
+    try:
+        from pathlib import Path
+        import json
+        sessions_dir = Path(SESSIONS_DIR)
+        sources = set()
+        for f in sorted(sessions_dir.glob("*.json"), reverse=True)[:50]:
+            try:
+                data = json.loads(f.read_text())
+                sources.add(data.get("source", "mcp"))
+            except Exception:
+                continue
+        budget += len(sources) * MASTER_CONTEXT_PER_SOURCE
+    except Exception:
+        pass
+
+    return min(budget, MASTER_CONTEXT_MAX_CHARS)

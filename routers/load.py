@@ -11,14 +11,21 @@ from utils.logging_ import logger
 router = APIRouter()
 
 
-def _search_archive(topic: str, limit: int = 5) -> list:
+def _search_archive(topic: str, limit: int = 5, source: str = None) -> list:
     results = []
+    # Fetch more results than needed so we can re-rank by source
+    fetch_limit = limit * 2 if source else limit
     for col_name in ["project_archive", "decisions", "sessions"]:
         try:
-            hits = chromadb_client.search_collection(col_name, topic, n_results=limit)
+            hits = chromadb_client.search_collection(col_name, topic, n_results=fetch_limit)
             for hit in hits:
                 if hit.get("distance", 999) < 1.5:
-                    results.append({"collection": col_name, "content": hit["content"][:500], "metadata": hit.get("metadata", {}), "relevance": round(1.0 - (hit.get("distance", 1.0) / 2.0), 3)})
+                    relevance = round(1.0 - (hit.get("distance", 1.0) / 2.0), 3)
+                    # Boost results from the requesting source
+                    hit_source = hit.get("metadata", {}).get("source", "")
+                    if source and hit_source == source:
+                        relevance = min(1.0, relevance + 0.15)  # 15% boost for same-source
+                    results.append({"collection": col_name, "content": hit["content"][:500], "metadata": hit.get("metadata", {}), "relevance": relevance})
         except Exception as e:
             logger.warning(f"Archive search failed for {col_name}: {e}")
     results.sort(key=lambda x: x.get("relevance", 0), reverse=True)
@@ -69,7 +76,7 @@ async def context_load(request: LoadRequest = None):
     if request is None:
         request = LoadRequest()
     session_id = generate_session_id()
-    logger.info(f"context_load: session={session_id}, topic={request.topic}")
+    logger.info(f"context_load: session={session_id}, topic={request.topic}, source={request.source}")
     hot_context = kb_gateway.read_master_context()
     degraded = False
     degraded_reason = None
@@ -80,7 +87,7 @@ async def context_load(request: LoadRequest = None):
     archive_hits, failure_warnings, nudges, conflicts = [], [], [], []
     if chromadb_client.is_connected():
         if request.topic:
-            archive_hits = _search_archive(request.topic)
+            archive_hits = _search_archive(request.topic, source=request.source)
             failure_warnings = _get_failure_warnings(request.topic)
         nudges = _detect_promotions()
         if not LEARNING_MODE:

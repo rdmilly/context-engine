@@ -256,6 +256,25 @@ class WorkerProcessor:
             # 8. Mark session as processed
             self._mark_processed(session_file, session_id, summary_result, triage_result)
 
+            # 8.2. Cockpit update (every session — lightweight project state tracker)
+            try:
+                from services.cockpit import read_cockpit, write_cockpit
+                current_cockpit = read_cockpit()
+                if current_cockpit:
+                    cockpit_result = await asyncio.to_thread(
+                        llm.update_cockpit, current_cockpit, session_data
+                    )
+                    if cockpit_result and cockpit_result.get("cockpit_markdown"):
+                        write_cockpit(cockpit_result["cockpit_markdown"])
+                        updated = cockpit_result.get("projects_updated", [])
+                        logger.info(f"Worker: cockpit updated — projects: {updated}")
+                    else:
+                        logger.warning("Worker: cockpit LLM update returned no result")
+                else:
+                    logger.info("Worker: no cockpit file found, skipping update")
+            except Exception as e:
+                logger.warning(f"Worker: cockpit update failed (non-fatal): {e}")
+
             # 8.5. Pattern detection (every 5th session, LLM call — run in thread)
             if self.stats["processed"] % 5 == 0:
                 try:
