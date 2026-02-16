@@ -100,6 +100,36 @@ class WorkerProcessor:
             logger.warning(f"Auto-backup: {e}")
         self._last_backup_time = _time.time()
 
+        # Run retention (daily, after backup)
+        try:
+            from services.retention import run_retention
+            from services import chromadb_client
+            if chromadb_client.is_connected():
+                client = chromadb_client.get_chromadb()
+                # Load retention settings
+                retention_overrides = None
+                try:
+                    from routers.settings import _load_settings
+                    s = _load_settings()
+                    retention_overrides = {
+                        "sessions": s.retention.sessions_days,
+                        "project_archive": s.retention.project_archive_days,
+                        "decisions": s.retention.decisions_days,
+                        "failures": s.retention.failures_days,
+                        "entities": s.retention.entities_days,
+                        "patterns": s.retention.patterns_days,
+                        "snapshots": s.retention.snapshots_days,
+                        "anomalies": s.retention.anomalies_days,
+                    }
+                except Exception:
+                    pass
+                results = run_retention(client, retention_overrides=retention_overrides)
+                total_pruned = sum(r.get("pruned", 0) for r in results)
+                if total_pruned > 0:
+                    logger.info(f"Retention: pruned {total_pruned} expired documents")
+        except Exception as e:
+            logger.warning(f"Retention: {e}")
+
     async def _process_session(self, item: dict):
         """Process a single session through the full pipeline.
         
@@ -192,9 +222,34 @@ class WorkerProcessor:
                 llm.compress_master_context, current_master, triage_result, session_data
             )
             if new_master and new_master.get("master_context_markdown"):
-                await asyncio.to_thread(write_master_context, new_master["master_context_markdown"])
-                changes = new_master.get("changes_made", [])
-                logger.info(f"Worker: master context updated — {len(changes)} changes")
+                # Integrity check before writing
+                try:
+                    from services.integrity_checker import check_integrity, load_kb_facts
+                    import os
+                    kb_root = os.environ.get("KB_ROOT", "/data/kb")
+                    kb_facts = load_kb_facts(kb_root)
+                    integrity = check_integrity(current_master, new_master["master_context_markdown"], kb_facts)
+                    if not integrity["passed"]:
+                        logger.warning(f"Worker: integrity check FAILED (severity={integrity['severity']}, dropped={integrity['drop_count']}): {integrity['details']}")
+                        if integrity["severity"] == "high":
+                            # High severity = block the write, keep existing master
+                            logger.error("Worker: BLOCKING master context update due to high-severity integrity failure")
+                            # Still take a snapshot of what would have been written
+                            await self._take_snapshot(f"{session_id}-blocked", new_master["master_context_markdown"])
+                        else:
+                            # Medium/low = write but log the warning
+                            await asyncio.to_thread(write_master_context, new_master["master_context_markdown"])
+                            changes = new_master.get("changes_made", [])
+                            logger.info(f"Worker: master context updated with warnings — {len(changes)} changes, {integrity['drop_count']} facts flagged")
+                    else:
+                        await asyncio.to_thread(write_master_context, new_master["master_context_markdown"])
+                        changes = new_master.get("changes_made", [])
+                        logger.info(f"Worker: master context updated — {len(changes)} changes, integrity OK")
+                except ImportError:
+                    # Integrity checker not available, write anyway
+                    await asyncio.to_thread(write_master_context, new_master["master_context_markdown"])
+                    changes = new_master.get("changes_made", [])
+                    logger.info(f"Worker: master context updated — {len(changes)} changes")
             else:
                 logger.warning("Worker: master context compression failed, keeping existing")
 
@@ -342,6 +397,7 @@ class WorkerProcessor:
                     "timestamp": ts,
                     "significance": summary.get("significance_confirmed", "medium"),
                     "topics": ",".join(summary.get("key_topics", [])),
+                    "source": session_data.get("source", "mcp"),
                 }],
                 ids=[f"session-{session_id}"]
             )

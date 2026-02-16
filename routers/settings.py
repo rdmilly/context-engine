@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from config import DATA_DIR
@@ -46,10 +46,22 @@ class NotificationSettings(BaseModel):
     telegram_bot_token: str = Field(default="")
     telegram_chat_id: str = Field(default="")
 
+class RetentionSettings(BaseModel):
+    sessions_days: int = 180       # 6 months
+    project_archive_days: int = 365
+    decisions_days: int = 365
+    failures_days: int = 365
+    entities_days: int = 0         # 0 = never prune
+    patterns_days: int = 365
+    snapshots_days: int = 30
+    anomalies_days: int = 180
+
+
 class AllSettings(BaseModel):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     watcher: WatcherSettings = Field(default_factory=WatcherSettings)
     notifications: NotificationSettings = Field(default_factory=NotificationSettings)
+    retention: RetentionSettings = Field(default_factory=RetentionSettings)
     updated_at: Optional[str] = None
 
 
@@ -343,4 +355,69 @@ async def get_llm_presets():
                 "signup_url": "https://lmstudio.ai/",
             },
         ]
+    }
+
+
+# ── Retention endpoints ───────────────────────────────────────
+@router.get("/api/retention")
+async def get_retention_status():
+    """Show current retention settings and what would be pruned (dry run)."""
+    from services.retention import run_retention
+    from services import chromadb_client
+
+    settings = _load_settings()
+
+    if not chromadb_client.is_connected():
+        return {"error": "ChromaDB not connected"}
+
+    client = chromadb_client.get_chromadb()
+    overrides = {
+        "sessions": settings.retention.sessions_days,
+        "project_archive": settings.retention.project_archive_days,
+        "decisions": settings.retention.decisions_days,
+        "failures": settings.retention.failures_days,
+        "entities": settings.retention.entities_days,
+        "patterns": settings.retention.patterns_days,
+        "snapshots": settings.retention.snapshots_days,
+        "anomalies": settings.retention.anomalies_days,
+    }
+
+    results = run_retention(client, retention_overrides=overrides, dry_run=True)
+
+    return {
+        "settings": overrides,
+        "dry_run": results,
+        "total_would_prune": sum(r.get("pruned", 0) for r in results),
+    }
+
+
+@router.post("/api/retention/run")
+async def run_retention_now():
+    """Run retention immediately (actually deletes expired docs)."""
+    from services.retention import run_retention
+    from services import chromadb_client
+
+    settings = _load_settings()
+
+    if not chromadb_client.is_connected():
+        raise HTTPException(status_code=503, detail="ChromaDB not connected")
+
+    client = chromadb_client.get_chromadb()
+    overrides = {
+        "sessions": settings.retention.sessions_days,
+        "project_archive": settings.retention.project_archive_days,
+        "decisions": settings.retention.decisions_days,
+        "failures": settings.retention.failures_days,
+        "entities": settings.retention.entities_days,
+        "patterns": settings.retention.patterns_days,
+        "snapshots": settings.retention.snapshots_days,
+        "anomalies": settings.retention.anomalies_days,
+    }
+
+    results = run_retention(client, retention_overrides=overrides, dry_run=False)
+
+    return {
+        "settings": overrides,
+        "results": results,
+        "total_pruned": sum(r.get("pruned", 0) for r in results),
     }

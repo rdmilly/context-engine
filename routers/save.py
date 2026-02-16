@@ -93,7 +93,14 @@ async def context_save(request: SaveRequest):
             if ext_sig and ext_sig in ("low", "medium", "high"):
                 from models import Significance
                 significance = Significance(ext_sig)
-    record = SessionRecord(session_id=request.session_id, created_at=now.isoformat(), summary=summary, significance=significance, files_changed=files_changed, decisions=decisions, failures=failures, project_states=request.project_states or {}, next_steps=next_steps, tags=tags, worker_processed=False, worker_processed_at=None)
+    # Auto-detect source from session_id prefix or explicit field
+    source = request.source or "mcp"
+    if source == "mcp" and "-" in request.session_id:
+        prefix = request.session_id.split("-")[0]
+        source_map = {"ce": "claude-ai", "jerry": "jerry", "infra": "file-watcher", "n8n": "n8n"}
+        source = source_map.get(prefix, "mcp")
+
+    record = SessionRecord(session_id=request.session_id, created_at=now.isoformat(), summary=summary, significance=significance, files_changed=files_changed, decisions=decisions, failures=failures, project_states=request.project_states or {}, next_steps=next_steps, tags=tags, source=source, worker_processed=False, worker_processed_at=None)
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
     filename = session_filename(request.session_id)
     filepath = SESSIONS_DIR / filename

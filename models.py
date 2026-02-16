@@ -48,6 +48,11 @@ class SaveRequest(BaseModel):
         description="Session significance: low (quick chat), "
                     "medium (standard work), high (major changes).",
     )
+    source: Optional[str] = Field(
+        None,
+        description="Source identifier (e.g. 'claude-desktop', 'jerry', 'n8n', 'file-watcher'). "
+                    "Auto-detected from session_id prefix if not provided.",
+    )
     files_changed: Optional[List[str]] = Field(
         None, description="List of files created/modified this session.",
     )
@@ -174,6 +179,7 @@ class SessionRecord(BaseModel):
     project_states: Dict[str, str] = {}
     next_steps: List[str] = []
     tags: List[str] = []
+    source: str = "mcp"
     worker_processed: bool = False
     worker_processed_at: Optional[str] = None
 

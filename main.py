@@ -51,6 +51,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"  Settings: init failed ({e}), using env var defaults")
 
+    # Initialize LLM failover chain
+    try:
+        from services.openrouter import get_client
+        from services.failover import get_failover_chain
+        chain = get_failover_chain(get_client())
+        logger.info(f"  Failover: initialized ({len(chain.fallbacks)} fallbacks)")
+    except Exception as e:
+        logger.warning(f"  Failover: init failed ({e})")
+
     # Check KB Gateway
     dm = get_degradation_manager()
     if kb_gateway.kb_accessible():
@@ -133,7 +142,7 @@ app.add_middleware(
 )
 
 # Mount routers
-from routers import load, save, search, correct, internal, checkpoint, bootstrap, backup, settings
+from routers import load, save, search, correct, internal, checkpoint, bootstrap, backup, settings, metrics, ingest
 
 app.include_router(load.router, tags=["MCP Tools"])
 app.include_router(save.router, tags=["MCP Tools"])
@@ -144,6 +153,8 @@ app.include_router(internal.router, tags=["Internal"])
 app.include_router(bootstrap.router, tags=["Bootstrap"])
 app.include_router(backup.router, tags=["Backup"])
 app.include_router(settings.router, tags=["Settings"])
+app.include_router(metrics.router, tags=["Metrics"])
+app.include_router(ingest.router, tags=["Ingest"])
 
 
 # Dashboard
