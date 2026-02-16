@@ -10,6 +10,7 @@ ContextEngine is a self-contained, recursive context management system for AI as
 You ←→ AI Assistant ←→ ContextEngine
                           ├── Master Context (hot, always loaded)
                           ├── ChromaDB Archive (warm, searched on demand)
+                          ├── File Watcher (auto-detects infrastructure changes)
                           └── Raw Sessions (cold, reprocessing/forensics)
 ```
 
@@ -29,19 +30,19 @@ The result: your AI assistant starts every conversation with a curated briefing 
 
 ### Prerequisites
 - Docker and Docker Compose
-- One of:
-  - **OpenRouter API key** (~$3-5/month) — [get one here](https://openrouter.ai/keys)
-  - **Ollama installed locally** (free) — [install here](https://ollama.ai)
+- An LLM provider (any OpenAI-compatible API — see below)
 
 ### Install
 
 ```bash
-git clone https://github.com/your-org/context-engine.git
+git clone https://github.com/rdmilly/context-engine.git
 cd context-engine
 
-# Configure
+# Option A: Configure via .env file
 cp .env.example .env
-# Edit .env with your preferred LLM backend + credentials
+# Edit .env with your LLM provider + API key
+
+# Option B: Skip .env — configure via the web dashboard after launch
 
 # Launch
 docker compose -f docker-compose.product.yml up -d
@@ -49,17 +50,30 @@ docker compose -f docker-compose.product.yml up -d
 
 ContextEngine will be running at `http://localhost:9040`.
 
+Open `http://localhost:9040/dashboard` → click **⚙ Settings** to configure your LLM provider, file watcher, and notifications from the UI.
+
+### Supported LLM Providers
+
+ContextEngine works with **any OpenAI-compatible API**. Pick one:
+
+| Provider | Base URL | Cost | Notes |
+|----------|----------|------|-------|
+| [OpenRouter](https://openrouter.ai/keys) | `https://openrouter.ai/api/v1` | ~$1-3/mo | 200+ models, recommended |
+| [OpenAI](https://platform.openai.com/api-keys) | `https://api.openai.com/v1` | ~$2-5/mo | Direct access |
+| [Groq](https://console.groq.com/keys) | `https://api.groq.com/openai/v1` | Free tier | Ultra-fast inference |
+| [Together AI](https://api.together.xyz/settings/api-keys) | `https://api.together.xyz/v1` | ~$1-3/mo | Fast open models |
+| [Ollama](https://ollama.com/download) | `http://host.docker.internal:11434/v1` | Free | Local, no API key needed |
+| [LM Studio](https://lmstudio.ai/) | `http://host.docker.internal:1234/v1` | Free | Local GUI |
+
 ### Verify
 
 ```bash
 curl http://localhost:9040/api/health
 ```
 
-Open `http://localhost:9040/dashboard` for the web UI.
-
 ### Connect to Claude Desktop
 
-Add to your Claude Desktop MCP config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+Add to your Claude Desktop MCP config:
 
 ```json
 {
@@ -84,22 +98,32 @@ Or use the SSE transport:
 }
 ```
 
-### Using with Ollama (Free, Local)
+## Features
 
-```bash
-# Install Ollama
-curl -fsSL https://ollama.ai/install.sh | sh
+### Web Dashboard
 
-# Pull required models
-ollama pull llama3.2:3b    # Light tasks (summaries, extraction)
-ollama pull llama3.1:8b    # Heavy tasks (compression, patterns)
+Eight-tab dashboard at `/dashboard`:
 
-# Configure .env
-LLM_BACKEND=ollama
-OLLAMA_URL=http://host.docker.internal:11434
-```
+- **Overview** — system health, session counts, degradation status
+- **Master Context** — view/edit the hot context document
+- **Sessions** — browse processed sessions
+- **Archive Search** — semantic search across ChromaDB
+- **Entities** — tracked people, projects, services, tools
+- **Nudges & Anomalies** — proactive alerts and integrity flags
+- **Backups** — create/restore backups (local + S3)
+- **⚙ Settings** — configure LLM provider, file watcher, notifications (hot-reloads, no restart needed)
 
-## Architecture
+### File Watcher
+
+Built-in infrastructure change detection. Mount a directory and ContextEngine will:
+
+- **Auto-commit** every file change to git (10s debounce)
+- **Parse compose files** — extract services, ports, images, networks → write directly to KB
+- **Detect credentials** — alert on passwords/API keys, never send them to the LLM
+- **Register new services** — auto-detect new stack/project directories
+- **Transcript drop zone** — drop conversation transcripts for automatic Haiku processing
+
+Enable by setting `WATCH_DIRS` or via the Settings tab.
 
 ### Three-Tier Memory
 
@@ -111,18 +135,20 @@ OLLAMA_URL=http://host.docker.internal:11434
 
 ### Worker Pipeline
 
-The background worker processes sessions at a rate-limited pace (1/minute) through these steps:
+The background worker processes sessions at a rate-limited pace (1/minute):
 
-1. Session summary (Haiku)
-2. Entity extraction (Haiku)
-3. Decision extraction (Sonnet)
-4. Failure extraction (Haiku)
-5. Triage classification (Haiku)
+1. Session summary extraction
+2. Entity extraction (people, projects, services, tools)
+3. Decision extraction
+4. Failure extraction
+5. Triage classification (keep/archive/merge/discard)
 6. ChromaDB archival
-7. Pattern detection (every 5th session, Sonnet)
-8. Nudge generation (every 3rd session, Haiku)
-9. Anomaly detection (every 4th session, Haiku)
-10. Master context compression (when over budget, Sonnet)
+7. Pattern detection (every 5th session)
+8. Nudge generation (every 3rd session)
+9. Anomaly detection (every 4th session)
+10. Master context compression (when over token budget)
+
+All steps run on Haiku-class models by default (~$0.01-0.03 per session).
 
 ### Graceful Degradation
 
@@ -155,41 +181,46 @@ Fresh install or data loss? ContextEngine can rebuild:
 | `context_search` | Search ChromaDB archive |
 | `context_correct` | Fix incorrect information |
 
-### Internal Endpoints
+### REST Endpoints
 
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/health` | Health check with degradation level |
-| `GET /api/summary` | Master context for auto-injection |
 | `GET /api/stats` | Collection sizes, session counts, LLM stats |
 | `GET /api/nudges` | Active nudges |
 | `GET /api/anomalies` | Active anomaly flags |
-| `GET /api/degradation` | Dependency health + circuit breaker status |
-| `GET /api/bootstrap/status` | Bootstrap readiness assessment |
-| `POST /api/backup/create` | Create backup (local + MinIO) |
+| `GET /api/settings` | Current configuration |
+| `POST /api/settings` | Update configuration (hot-reload) |
+| `POST /api/settings/test-llm` | Test LLM connection |
+| `GET /api/settings/presets` | LLM provider presets |
+| `POST /api/backup/create` | Create backup (local + S3) |
 | `GET /api/backup/list` | List available backups |
 | `POST /api/backup/restore` | Restore from backup |
-| `GET /dashboard` | Web dashboard UI |
+| `GET /dashboard` | Web dashboard |
 
 ## Configuration
 
-All configuration via environment variables (see `.env.example`):
+Configure via `.env` file, environment variables, or the dashboard Settings tab.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_BACKEND` | `openrouter` | `openrouter` or `ollama` |
-| `OPENROUTER_API_KEY` | — | OpenRouter API key |
-| `OLLAMA_URL` | `http://host.docker.internal:11434` | Ollama server URL |
+| `LLM_BASE_URL` | `https://openrouter.ai/api/v1` | Any OpenAI-compatible endpoint |
+| `LLM_API_KEY` | — | API key (leave empty for local models) |
+| `LLM_MODEL_FAST` | `anthropic/claude-haiku-4.5` | Model for extraction, summaries |
+| `LLM_MODEL_SMART` | `anthropic/claude-haiku-4.5` | Model for triage, compression |
+| `WATCH_DIRS` | — | Comma-separated dirs to watch |
+| `WATCH_TRANSCRIPT_DIR` | — | Transcript drop zone directory |
+| `TELEGRAM_BOT_TOKEN` | — | Telegram alerts bot token |
+| `TELEGRAM_CHAT_ID` | — | Telegram chat ID |
 | `STANDALONE_MODE` | `false` | Skip external KB mount |
 | `LEARNING_MODE` | `true` | Log-only mode (no context updates) |
 | `CE_PORT` | `9040` | External port mapping |
 
 ## Cost
 
-With OpenRouter (Haiku + Sonnet):
-- **Per session:** ~$0.03-0.05
-- **Monthly (daily use):** ~$3-5
-- **With Ollama:** $0 (runs on your hardware)
+- **Haiku on OpenRouter:** ~$0.01-0.03 per session, ~$1-3/month with daily use
+- **Groq free tier:** $0
+- **Ollama / LM Studio:** $0 (runs on your hardware)
 
 ## What It's NOT
 

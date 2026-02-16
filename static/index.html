@@ -43,6 +43,7 @@
             <button onclick="showTab('entities')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-entities">Entities</button>
             <button onclick="showTab('nudges')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-nudges">Nudges & Anomalies</button>
             <button onclick="showTab('backups')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-backups">Backups</button>
+            <button onclick="showTab('settings')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-settings">⚙ Settings</button>
         </div>
 
         <!-- Tab Content -->
@@ -382,6 +383,209 @@ async function createBackup() {
 }
 
 // ─── Helpers ────────────────────────────────────────────
+
+// ─── Settings ───────────────────────────────────────────
+async function load_settings() {
+    const [settings, presets] = await Promise.all([
+        api('/api/settings'),
+        api('/api/settings/presets'),
+    ]);
+    const llm = settings.llm || {};
+    const watcher = settings.watcher || {};
+    const notif = settings.notifications || {};
+    const presetOpts = (presets.presets || []).map(p => 
+        `<option value="${p.name}" data-url="${p.base_url}" data-fast="${p.suggested_fast}" data-smart="${p.suggested_smart}" data-key="${p.needs_key}">${p.name} — ${p.description}</option>`
+    ).join('');
+
+    const watchDirRows = (watcher.watch_dirs || []).map((d, i) =>
+        `<div class="flex items-center gap-2 mb-2">
+            <input type="text" value="${escHtml(d)}" class="watch-dir flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white font-mono" />
+            <button onclick="removeWatchDir(${i})" class="text-red-400 hover:text-red-300 text-sm px-2">✕</button>
+        </div>`
+    ).join('');
+
+    document.getElementById('content').innerHTML = `
+        <div class="space-y-6">
+            <!-- LLM Provider -->
+            <div class="bg-gray-900 rounded-lg p-5">
+                <h3 class="text-lg font-semibold text-white mb-1">LLM Provider</h3>
+                <p class="text-xs text-gray-500 mb-4">Any OpenAI-compatible API works — OpenRouter, OpenAI, Ollama, Together, Groq, LM Studio, etc.</p>
+                
+                <div class="mb-4">
+                    <label class="block text-xs text-gray-400 mb-1">Quick Setup — Pick a Provider</label>
+                    <select id="llm-preset" onchange="applyPreset(this)" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white">
+                        <option value="">Custom configuration</option>
+                        ${presetOpts}
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">API Base URL</label>
+                        <input id="llm-url" type="text" value="${escHtml(llm.base_url)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">API Key ${llm.api_key_set ? '<span class="text-green-400">✓ set</span>' : '<span class="text-yellow-400">not set</span>'}</label>
+                        <input id="llm-key" type="password" placeholder="${llm.api_key_set ? '••••••• (leave empty to keep current)' : 'Enter API key'}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Fast Model <span class="text-gray-600">(extraction, summaries, nudges)</span></label>
+                        <input id="llm-fast" type="text" value="${escHtml(llm.model_fast)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Smart Model <span class="text-gray-600">(triage, compression, patterns)</span></label>
+                        <input id="llm-smart" type="text" value="${escHtml(llm.model_smart)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
+                    </div>
+                </div>
+                <div class="flex gap-3 mt-4">
+                    <button onclick="saveLLM()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Save LLM Settings</button>
+                    <button onclick="testLLM()" id="btn-test-llm" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm text-white">Test Connection</button>
+                    <span id="llm-status" class="text-sm py-2"></span>
+                </div>
+            </div>
+
+            <!-- File Watcher -->
+            <div class="bg-gray-900 rounded-lg p-5">
+                <div class="flex items-center justify-between mb-1">
+                    <h3 class="text-lg font-semibold text-white">File Watcher</h3>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <span class="text-xs text-gray-400">${watcher.enabled ? 'Active' : 'Disabled'}</span>
+                        <input id="watcher-enabled" type="checkbox" ${watcher.enabled ? 'checked' : ''} class="w-4 h-4 rounded" />
+                    </label>
+                </div>
+                <p class="text-xs text-gray-500 mb-4">Auto-commits infrastructure changes to git and feeds them into the context pipeline.</p>
+                
+                <div class="mb-4">
+                    <label class="block text-xs text-gray-400 mb-2">Watch Directories</label>
+                    <div id="watch-dirs">${watchDirRows || '<p class="text-xs text-gray-600">No directories configured</p>'}</div>
+                    <button onclick="addWatchDir()" class="text-blue-400 hover:text-blue-300 text-sm mt-1">+ Add directory</button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Git Root</label>
+                        <input id="watcher-git-root" type="text" value="${escHtml(watcher.git_root)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Transcript Drop Zone</label>
+                        <input id="watcher-transcript" type="text" value="${escHtml(watcher.transcript_dir)}" placeholder="/watch/transcripts" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Debounce (seconds)</label>
+                        <input id="watcher-debounce" type="number" value="${watcher.debounce_seconds || 10}" min="1" max="120" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white" />
+                    </div>
+                </div>
+                <button onclick="saveWatcher()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Save Watcher Settings</button>
+                <span id="watcher-status" class="text-sm py-2 ml-3"></span>
+            </div>
+
+            <!-- Notifications -->
+            <div class="bg-gray-900 rounded-lg p-5">
+                <h3 class="text-lg font-semibold text-white mb-1">Notifications</h3>
+                <p class="text-xs text-gray-500 mb-4">Get Telegram alerts for significant infrastructure changes.</p>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Telegram Bot Token ${notif.telegram_bot_token_set ? '<span class="text-green-400">✓ set</span>' : ''}</label>
+                        <input id="tg-token" type="password" placeholder="${notif.telegram_bot_token_set ? '••••••• (leave empty to keep)' : 'Bot token from @BotFather'}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-400 mb-1">Chat ID</label>
+                        <input id="tg-chat" type="text" value="${escHtml(notif.telegram_chat_id)}" placeholder="Your Telegram chat ID" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <button onclick="saveNotifications()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Save</button>
+                    <button onclick="testTelegram()" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm text-white">Send Test</button>
+                    <span id="notif-status" class="text-sm py-2"></span>
+                </div>
+            </div>
+
+            <div class="text-xs text-gray-600 text-right">Last updated: ${settings.updated_at ? new Date(settings.updated_at).toLocaleString() : 'never'}</div>
+        </div>
+    `;
+}
+
+function applyPreset(select) {
+    const opt = select.selectedOptions[0];
+    if (!opt || !opt.dataset.url) return;
+    document.getElementById('llm-url').value = opt.dataset.url;
+    document.getElementById('llm-fast').value = opt.dataset.fast;
+    document.getElementById('llm-smart').value = opt.dataset.smart;
+    if (opt.dataset.key === 'false') {
+        document.getElementById('llm-key').placeholder = 'Not needed for this provider';
+    }
+}
+
+async function saveLLM() {
+    const data = { llm: {
+        base_url: document.getElementById('llm-url').value,
+        model_fast: document.getElementById('llm-fast').value,
+        model_smart: document.getElementById('llm-smart').value,
+    }};
+    const key = document.getElementById('llm-key').value;
+    if (key) data.llm.api_key = key;
+    const r = await api('/api/settings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    document.getElementById('llm-status').innerHTML = r.status === 'saved' ? '<span class="text-green-400">✓ Saved</span>' : '<span class="text-red-400">Error</span>';
+}
+
+async function testLLM() {
+    const btn = document.getElementById('btn-test-llm');
+    const status = document.getElementById('llm-status');
+    btn.textContent = 'Testing...'; btn.disabled = true;
+    const r = await api('/api/settings/test-llm', { method: 'POST' });
+    btn.textContent = 'Test Connection'; btn.disabled = false;
+    if (r.status === 'connected') {
+        status.innerHTML = `<span class="text-green-400">✓ Connected — ${escHtml(r.model)} responded (${r.tokens?.total_tokens || '?'} tokens)</span>`;
+    } else {
+        status.innerHTML = `<span class="text-red-400">✗ ${escHtml(r.message)}</span>`;
+    }
+}
+
+function addWatchDir() {
+    const container = document.getElementById('watch-dirs');
+    const div = document.createElement('div');
+    div.className = 'flex items-center gap-2 mb-2';
+    div.innerHTML = `<input type="text" value="" placeholder="/path/to/watch" class="watch-dir flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white font-mono" />
+        <button onclick="this.parentElement.remove()" class="text-red-400 hover:text-red-300 text-sm px-2">✕</button>`;
+    container.appendChild(div);
+}
+
+function removeWatchDir(idx) {
+    const dirs = document.querySelectorAll('.watch-dir');
+    if (dirs[idx]) dirs[idx].parentElement.remove();
+}
+
+async function saveWatcher() {
+    const dirs = Array.from(document.querySelectorAll('.watch-dir')).map(i => i.value).filter(v => v);
+    const data = { watcher: {
+        enabled: document.getElementById('watcher-enabled').checked,
+        watch_dirs: dirs,
+        git_root: document.getElementById('watcher-git-root').value,
+        transcript_dir: document.getElementById('watcher-transcript').value,
+        debounce_seconds: parseInt(document.getElementById('watcher-debounce').value) || 10,
+    }};
+    const r = await api('/api/settings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    document.getElementById('watcher-status').innerHTML = r.status === 'saved' ? '<span class="text-green-400">✓ Saved & restarted</span>' : '<span class="text-red-400">Error</span>';
+}
+
+async function saveNotifications() {
+    const data = { notifications: {
+        telegram_enabled: true,
+        telegram_chat_id: document.getElementById('tg-chat').value,
+    }};
+    const token = document.getElementById('tg-token').value;
+    if (token) data.notifications.telegram_bot_token = token;
+    const r = await api('/api/settings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    document.getElementById('notif-status').innerHTML = r.status === 'saved' ? '<span class="text-green-400">✓ Saved</span>' : '<span class="text-red-400">Error</span>';
+}
+
+async function testTelegram() {
+    const status = document.getElementById('notif-status');
+    status.innerHTML = '<span class="text-gray-400">Sending...</span>';
+    const r = await api('/api/settings/test-telegram', { method: 'POST' });
+    status.innerHTML = r.status === 'sent' ? '<span class="text-green-400">✓ Sent!</span>' : `<span class="text-red-400">✗ ${escHtml(r.message)}</span>`;
+}
 function escHtml(s) {
     if (!s) return '';
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');

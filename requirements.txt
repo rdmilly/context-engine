@@ -2,6 +2,8 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 httpx==0.28.1
 pydantic==2.10.5
-chromadb
+chromadb==0.5.23
 apscheduler==3.11.0
 minio==7.2.15
+watchdog==4.0.2
+pyyaml==6.0.2

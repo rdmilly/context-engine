@@ -1,3 +1,6 @@
+# ContextEngine — Base Compose
+# Works standalone or with docker-compose.override.yml for production settings.
+# For standalone deployment, use docker-compose.product.yml instead.
 
 services:
   context-engine:
@@ -15,63 +18,42 @@ services:
       - PROMPTS_DIR=/app/data/prompts
       - LEARNING_MODE=false
       - TRANSCRIPTS_DIR=/app/data/transcripts
-      - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
-      - MINIO_BUCKET=contextengine-backups
-      - MINIO_SECURE=false
-    env_file:
-      - .env
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://openrouter.ai/api/v1}
+      - LLM_MODEL_FAST=${LLM_MODEL_FAST:-anthropic/claude-haiku-4.5}
+      - LLM_MODEL_SMART=${LLM_MODEL_SMART:-anthropic/claude-haiku-4.5}
+      - WATCH_GIT_ROOT=/watch
     volumes:
-      - /opt/projects/millyweb-kb:/data/kb
-      - /opt/data/context-engine/sessions:/app/data/sessions
-      - /opt/data/context-engine/logs:/app/data/logs
-      - /opt/data/context-engine/prompts:/app/data/prompts
-      - /opt/data/context-engine/transcripts:/app/data/transcripts
-      - /opt/data/context-engine/backups:/app/data/backups
-    depends_on:
-      - chromadb
-    restart: unless-stopped
+      - ce-data:/app/data
     networks:
-      - context-engine
-      - mcp-network
-    deploy:
-      resources:
-        limits:
-          memory: 1G
+      - ce-network
+    depends_on:
+      chromadb:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9040/api/health')"]
+      test: ["CMD", "curl", "-f", "http://localhost:9040/api/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 15s
 
   chromadb:
-    image: chromadb/chroma:latest
+    image: chromadb/chroma:0.5.23
     container_name: context-engine-chromadb
-    ports:
-      - "9041:8000"
     volumes:
-      - /opt/data/context-engine/chromadb:/data
-    environment:
-      - IS_PERSISTENT=TRUE
-      - ANONYMIZED_TELEMETRY=FALSE
-    restart: unless-stopped
+      - chromadb-data:/chroma/chroma
     networks:
-      - context-engine
-    deploy:
-      resources:
-        limits:
-          memory: 1G
+      - ce-network
     healthcheck:
-      test: ["CMD-SHELL", "test -f /data/chroma.sqlite3"]
-      interval: 30s
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 15s
       timeout: 5s
-      retries: 3
+      retries: 5
       start_period: 10s
 
+volumes:
+  ce-data:
+  chromadb-data:
+
 networks:
-  context-engine:
+  ce-network:
     driver: bridge
-  mcp-network:
-    external: true

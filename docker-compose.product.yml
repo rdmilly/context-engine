@@ -3,13 +3,17 @@
 # No external KB mount required. No MinIO required.
 #
 # Usage:
-#   1. Copy this file + the context-engine source to a directory
-#   2. Set your LLM provider credentials in .env
+#   1. Clone the repo
+#   2. Copy .env.example to .env and configure your LLM provider
 #   3. docker compose -f docker-compose.product.yml up -d
+#   4. Open http://localhost:9040/dashboard
+#   5. Or configure via Settings tab in the dashboard
 #
-# Supports two LLM backends:
-#   - OpenRouter (cloud, ~$3-5/month): Set OPENROUTER_API_KEY in .env
-#   - Ollama (local, free): Install Ollama, set LLM_BACKEND=ollama in .env
+# Supports any OpenAI-compatible LLM:
+#   - OpenRouter (cloud, ~$1-3/month on Haiku): Set LLM_API_KEY
+#   - OpenAI direct: Set LLM_BASE_URL + LLM_API_KEY
+#   - Ollama (local, free): Set LLM_BASE_URL=http://host.docker.internal:11434/v1
+#   - Together, Groq, LM Studio, etc.
 
 services:
   context-engine:
@@ -23,59 +27,63 @@ services:
       - CHROMADB_PORT=8000
       - STANDALONE_MODE=true
       - LEARNING_MODE=${LEARNING_MODE:-true}
+
+      # LLM Provider (configure here OR via dashboard Settings tab)
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://openrouter.ai/api/v1}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL_FAST=${LLM_MODEL_FAST:-anthropic/claude-haiku-4.5}
+      - LLM_MODEL_SMART=${LLM_MODEL_SMART:-anthropic/claude-haiku-4.5}
+
+      # Legacy env vars (still supported, overridden by LLM_* if both set)
       - LLM_BACKEND=${LLM_BACKEND:-openrouter}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-${LLM_API_KEY:-}}
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL_LIGHT=${OLLAMA_MODEL_LIGHT:-llama3.2:3b}
       - OLLAMA_MODEL_HEAVY=${OLLAMA_MODEL_HEAVY:-llama3.1:8b}
-    env_file:
-      - .env
+
+      # File Watcher (optional — mount a directory to /watch)
+      - WATCH_DIRS=${WATCH_DIRS:-}
+      - WATCH_GIT_ROOT=/watch
+      - WATCH_TRANSCRIPT_DIR=${WATCH_TRANSCRIPT_DIR:-}
+      - WATCH_DEBOUNCE_SECONDS=${WATCH_DEBOUNCE_SECONDS:-10}
+
+      # Telegram Notifications (optional)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
     volumes:
       - ce-data:/app/data
+      # Uncomment to enable file watcher on your infrastructure:
+      # - /opt:/watch
+    networks:
+      - ce-network
     depends_on:
       chromadb:
         condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - context-engine
-    deploy:
-      resources:
-        limits:
-          memory: 1G
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9040/api/health')"]
+      test: ["CMD", "curl", "-f", "http://localhost:9040/api/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 15s
 
   chromadb:
-    image: chromadb/chroma:latest
+    image: chromadb/chroma:0.5.23
     container_name: context-engine-chromadb
     volumes:
-      - ce-chromadb:/data
-    environment:
-      - IS_PERSISTENT=TRUE
-      - ANONYMIZED_TELEMETRY=FALSE
-    restart: unless-stopped
+      - chromadb-data:/chroma/chroma
     networks:
-      - context-engine
-    deploy:
-      resources:
-        limits:
-          memory: 1G
+      - ce-network
     healthcheck:
-      test: ["CMD-SHELL", "test -f /data/chroma.sqlite3"]
-      interval: 30s
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 15s
       timeout: 5s
-      retries: 3
+      retries: 5
       start_period: 10s
 
 volumes:
   ce-data:
-    driver: local
-  ce-chromadb:
-    driver: local
+  chromadb-data:
 
 networks:
-  context-engine:
+  ce-network:
     driver: bridge

@@ -24,6 +24,7 @@ from services import chromadb_client, kb_gateway
 from worker.processor import get_processor
 from utils.logging_ import logger
 from utils.degradation import get_manager as get_degradation_manager
+from config import WATCH_DIRS, WATCH_GIT_ROOT, WATCH_TRANSCRIPT_DIR, WATCH_DEBOUNCE_SECONDS, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 
 @asynccontextmanager
@@ -31,7 +32,7 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown logic."""
     # Startup
     logger.info("=" * 60)
-    logger.info("ContextEngine v0.2.0 starting up...")
+    logger.info("ContextEngine v0.4.0 starting up...")
     logger.info(f"  Port: {PORT}")
     logger.info(f"  Debug: {DEBUG}")
     logger.info(f"  Learning mode: {LEARNING_MODE}")
@@ -40,6 +41,15 @@ async def lifespan(app: FastAPI):
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     (DATA_DIR / "backups").mkdir(parents=True, exist_ok=True)
+
+    # Initialize settings (loads from settings.json or bootstraps from env vars)
+    try:
+        from routers.settings import _load_settings, _apply_llm_settings
+        saved_settings = _load_settings()
+        _apply_llm_settings(saved_settings.llm)
+        logger.info(f"  Settings: loaded (LLM: {saved_settings.llm.base_url})")
+    except Exception as e:
+        logger.warning(f"  Settings: init failed ({e}), using env var defaults")
 
     # Check KB Gateway
     dm = get_degradation_manager()
@@ -76,6 +86,23 @@ async def lifespan(app: FastAPI):
     processor.start()
     logger.info("  Worker: started")
 
+    # Start file watcher (if configured)
+    file_watcher = None
+    if WATCH_DIRS:
+        from services.file_watcher import init_watcher
+        file_watcher = init_watcher(
+            watch_dirs=WATCH_DIRS,
+            git_root=WATCH_GIT_ROOT,
+            transcript_dir=WATCH_TRANSCRIPT_DIR or None,
+            debounce_seconds=WATCH_DEBOUNCE_SECONDS,
+            telegram_token=TELEGRAM_BOT_TOKEN or None,
+            telegram_chat_id=TELEGRAM_CHAT_ID or None,
+        )
+        file_watcher.start()
+        logger.info(f"  FileWatcher: monitoring {len(WATCH_DIRS)} dirs")
+    else:
+        logger.info("  FileWatcher: disabled (WATCH_DIRS not set)")
+
     logger.info("ContextEngine ready.")
     logger.info("=" * 60)
 
@@ -83,6 +110,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("ContextEngine shutting down...")
+    if file_watcher:
+        file_watcher.stop()
     processor = get_processor()
     processor.stop()
     logger.info("ContextEngine shutdown complete.")
@@ -104,7 +133,7 @@ app.add_middleware(
 )
 
 # Mount routers
-from routers import load, save, search, correct, internal, checkpoint, bootstrap, backup
+from routers import load, save, search, correct, internal, checkpoint, bootstrap, backup, settings
 
 app.include_router(load.router, tags=["MCP Tools"])
 app.include_router(save.router, tags=["MCP Tools"])
@@ -114,6 +143,7 @@ app.include_router(checkpoint.router, tags=["MCP Tools"])
 app.include_router(internal.router, tags=["Internal"])
 app.include_router(bootstrap.router, tags=["Bootstrap"])
 app.include_router(backup.router, tags=["Backup"])
+app.include_router(settings.router, tags=["Settings"])
 
 
 # Dashboard

@@ -32,22 +32,25 @@ SESSIONS_DIR = Path(os.environ.get("SESSIONS_DIR", "/app/data/sessions"))
 LOGS_DIR = Path(os.environ.get("LOGS_DIR", "/app/data/logs"))
 PROMPTS_DIR = Path(os.environ.get("PROMPTS_DIR", "/app/data/prompts"))
 
-# ─── OpenRouter ────────────────────────────────────────────────
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+# ─── LLM Provider (unified config) ─────────────────────────────
+# New vars take priority; falls back to legacy OPENROUTER_* vars
+OPENROUTER_BASE_URL = os.environ.get("LLM_BASE_URL", os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"))
+OPENROUTER_API_KEY = os.environ.get("LLM_API_KEY", os.environ.get("OPENROUTER_API_KEY", ""))
 
-# ─── Model Routing ─────────────────────────────────────────────
-# Free models unreliable (spend limits), use Haiku as baseline
+# Model routing — fast for extraction/summaries, smart for triage/compression
+_MODEL_FAST = os.environ.get("LLM_MODEL_FAST", "anthropic/claude-haiku-4.5")
+_MODEL_SMART = os.environ.get("LLM_MODEL_SMART", "anthropic/claude-haiku-4.5")
+
 TASK_MODELS = {
-    "session_summary": "anthropic/claude-haiku-4.5",
-    "entity_extraction": "anthropic/claude-haiku-4.5",
-    "nudge_generation": "anthropic/claude-haiku-4.5",
-    "failure_extraction": "anthropic/claude-haiku-4.5",
-    "triage": "anthropic/claude-haiku-4.5",
-    "decision_extraction": "anthropic/claude-sonnet-4.5",
-    "master_compression": "anthropic/claude-sonnet-4.5",
-    "pattern_analysis": "anthropic/claude-sonnet-4.5",
-    "anomaly_detection": "anthropic/claude-haiku-4.5",
+    "session_summary": _MODEL_FAST,
+    "entity_extraction": _MODEL_FAST,
+    "nudge_generation": _MODEL_FAST,
+    "failure_extraction": _MODEL_FAST,
+    "triage": _MODEL_FAST,
+    "anomaly_detection": _MODEL_FAST,
+    "decision_extraction": _MODEL_SMART,
+    "master_compression": _MODEL_SMART,
+    "pattern_analysis": _MODEL_SMART,
 }
 
 # ─── LLM Backend Selection ─────────────────────────────────
@@ -130,3 +133,13 @@ LEARNING_MODE_THRESHOLD = 20      # Sessions before learning mode disables
 # ─── Transcripts ──────────────────────────────────────────────
 TRANSCRIPTS_DIR = Path(os.environ.get("TRANSCRIPTS_DIR", "/app/data/transcripts"))
 MAX_TRANSCRIPT_CHARS = 120000  # ~30K tokens, truncate beyond this for Haiku
+
+# ─── File Watcher ─────────────────────────────────────────────
+# Comma-separated list of directories to watch for infrastructure changes.
+# Empty = disabled. Mount host dirs into container to use.
+WATCH_DIRS = [d.strip() for d in os.environ.get("WATCH_DIRS", "").split(",") if d.strip()]
+WATCH_GIT_ROOT = os.environ.get("WATCH_GIT_ROOT", "/watch")
+WATCH_TRANSCRIPT_DIR = os.environ.get("WATCH_TRANSCRIPT_DIR", "")
+WATCH_DEBOUNCE_SECONDS = int(os.environ.get("WATCH_DEBOUNCE_SECONDS", "10"))
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")

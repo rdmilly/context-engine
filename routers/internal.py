@@ -36,6 +36,15 @@ async def get_summary():
     return {"summary": summary, "tokens_estimate": len(summary.split()), "degraded": dm.level.value != "full", "degradation_level": dm.level.value}
 
 
+def _get_watcher_stats() -> dict:
+    """Get file watcher stats if running."""
+    try:
+        from services.file_watcher import get_watcher
+        w = get_watcher()
+        return w.get_stats() if w else {"enabled": False}
+    except Exception:
+        return {"enabled": False}
+
 @router.get("/api/stats")
 async def get_stats():
     import json
@@ -61,8 +70,24 @@ async def get_stats():
     try:
         from services.openrouter import get_client as _get_llm
         llm_stats = _get_llm().stats
-    except: llm_stats = {"calls": 0, "backend": "unknown"}
-    return {"sessions": {"total": sessions_count, "processed": processed_count, "unprocessed": unprocessed_count}, "sessions_total": sessions_count, "sessions_processed": processed_count, "sessions_unprocessed": unprocessed_count, "recent_sessions": recent_sessions, "chromadb_collections": chromadb_stats, "kb_accessible": kb_gateway.kb_accessible(), "learning_mode": LEARNING_MODE, "worker": processor.status, "llm": llm_stats}
+
+    except Exception:
+        llm_stats = {"calls": 0, "backend": "unknown"}
+
+    return {
+        "sessions": {"total": sessions_count, "processed": processed_count, "unprocessed": unprocessed_count},
+        "sessions_total": sessions_count,
+        "sessions_processed": processed_count,
+        "sessions_unprocessed": unprocessed_count,
+        "recent_sessions": recent_sessions,
+        "chromadb_collections": chromadb_stats,
+        "kb_accessible": kb_gateway.kb_accessible(),
+        "learning_mode": LEARNING_MODE,
+        "worker": processor.status,
+        "llm": llm_stats,
+        "file_watcher": _get_watcher_stats(),
+    }
+
 
 
 @router.get("/api/worker")
