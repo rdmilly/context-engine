@@ -1,0 +1,15 @@
+# ContextEngine .gitignore
+.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+/data/
+*.json.bak
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
