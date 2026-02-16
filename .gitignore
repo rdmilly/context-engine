@@ -1,4 +1,3 @@
-# ContextEngine .gitignore
 .env
 __pycache__/
 *.pyc
@@ -9,7 +8,10 @@ dist/
 build/
 /data/
 *.json.bak
+*.pre-*
+*.bak
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+*.local

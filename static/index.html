@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ContextEngine Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; }
+        .tab-active { border-bottom: 2px solid #3b82f6; color: #3b82f6; }
+        .status-full { color: #22c55e; }
+        .status-partial { color: #eab308; }
+        .status-minimal { color: #f97316; }
+        .status-offline { color: #ef4444; }
+        .circuit-closed { color: #22c55e; }
+        .circuit-open { color: #ef4444; }
+        .circuit-half_open { color: #eab308; }
+        pre { white-space: pre-wrap; word-break: break-word; }
+        .fade-in { animation: fadeIn 0.2s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-200 min-h-screen">
+    <div class="max-w-6xl mx-auto px-4 py-6">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-2xl font-bold text-white">ContextEngine</h1>
+                <p class="text-sm text-gray-500" id="version-info">Loading...</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <span id="health-badge" class="px-3 py-1 rounded-full text-sm font-medium bg-gray-800">...</span>
+                <button onclick="refreshAll()" class="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700 text-sm">↻ Refresh</button>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex gap-1 border-b border-gray-800 mb-6 overflow-x-auto">
+            <button onclick="showTab('overview')" class="tab px-4 py-2 text-sm hover:text-white tab-active" id="tab-overview">Overview</button>
+            <button onclick="showTab('context')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-context">Master Context</button>
+            <button onclick="showTab('sessions')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-sessions">Sessions</button>
+            <button onclick="showTab('search')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-search">Archive Search</button>
+            <button onclick="showTab('entities')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-entities">Entities</button>
+            <button onclick="showTab('nudges')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-nudges">Nudges & Anomalies</button>
+            <button onclick="showTab('backups')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-backups">Backups</button>
+        </div>
+
+        <!-- Tab Content -->
+        <div id="content" class="fade-in"></div>
+    </div>
+
+<script>
+const API = '';  // Same origin
+let currentTab = 'overview';
+
+async function api(path, opts = {}) {
+    try {
+        const r = await fetch(API + path, opts);
+        return await r.json();
+    } catch (e) {
+        console.error(`API ${path}:`, e);
+        return { error: e.message };
+    }
+}
+
+function showTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active'));
+    document.getElementById('tab-' + tab).classList.add('tab-active');
+    const content = document.getElementById('content');
+    content.innerHTML = '<p class="text-gray-500">Loading...</p>';
+    content.classList.remove('fade-in');
+    void content.offsetWidth;
+    content.classList.add('fade-in');
+    window['load_' + tab]();
+}
+
+async function refreshAll() {
+    await loadHeader();
+    window['load_' + currentTab]();
+}
+
+async function loadHeader() {
+    const h = await api('/api/health');
+    if (h.error) {
+        document.getElementById('health-badge').textContent = 'Offline';
+        document.getElementById('health-badge').className = 'px-3 py-1 rounded-full text-sm font-medium bg-red-900 text-red-300';
+        return;
+    }
+    document.getElementById('version-info').textContent = `v${h.version} · ${h.sessions_count} sessions · ${h.uptime_seconds > 3600 ? Math.floor(h.uptime_seconds/3600)+'h' : Math.floor(h.uptime_seconds/60)+'m'} uptime`;
+    const badge = document.getElementById('health-badge');
+    badge.textContent = h.degradation_level.toUpperCase();
+    badge.className = `px-3 py-1 rounded-full text-sm font-medium ${
+        h.degradation_level === 'full' ? 'bg-green-900/50 text-green-400' :
+        h.degradation_level === 'partial' ? 'bg-yellow-900/50 text-yellow-400' :
+        'bg-red-900/50 text-red-400'}`;
+}
+
+// ─── Overview ───────────────────────────────────────────
+async function load_overview() {
+    const [health, deg, stats, bootstrap] = await Promise.all([
+        api('/api/health'), api('/api/degradation'), api('/api/stats'), api('/api/bootstrap/status')
+    ]);
+
+    const depCards = Object.entries(deg.dependencies || {}).map(([name, d]) => `
+        <div class="bg-gray-900 rounded-lg p-4">
+            <div class="flex justify-between items-center mb-2">
+                <span class="font-medium text-white">${name}</span>
+                <span class="${d.healthy ? 'text-green-400' : 'text-red-400'}">${d.healthy ? '● Healthy' : '● Down'}</span>
+            </div>
+            <div class="text-xs text-gray-500">
+                Circuit: <span class="circuit-${d.circuit_breaker}">${d.circuit_breaker}</span>
+                ${d.error ? `<br>Error: ${d.error}` : ''}
+            </div>
+        </div>
+    `).join('');
+
+    const collectionRows = Object.entries(bootstrap.chromadb_collections || {}).map(([name, count]) => `
+        <tr class="border-b border-gray-800">
+            <td class="py-1 pr-4 text-gray-400">${name}</td>
+            <td class="py-1 text-white">${count}</td>
+        </tr>
+    `).join('');
+
+    document.getElementById('content').innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="bg-gray-900 rounded-lg p-4">
+                <div class="text-xs text-gray-500 uppercase mb-1">Sessions</div>
+                <div class="text-2xl font-bold text-white">${health.sessions_count || 0}</div>
+                <div class="text-xs text-gray-500">${bootstrap.session_files?.processed || 0} processed · ${bootstrap.session_files?.unprocessed || 0} queued</div>
+            </div>
+            <div class="bg-gray-900 rounded-lg p-4">
+                <div class="text-xs text-gray-500 uppercase mb-1">Cache</div>
+                <div class="text-2xl font-bold text-white">${deg.cache?.available ? '●' : '○'} ${deg.cache?.source || 'none'}</div>
+                <div class="text-xs text-gray-500">${deg.cache?.size_bytes ? (deg.cache.size_bytes/1024).toFixed(1) + ' KB' : 'empty'}${deg.cache?.age_seconds ? ' · ' + Math.floor(deg.cache.age_seconds) + 's old' : ''}</div>
+            </div>
+            <div class="bg-gray-900 rounded-lg p-4">
+                <div class="text-xs text-gray-500 uppercase mb-1">LLM Stats</div>
+                <div class="text-2xl font-bold text-white">${stats.llm?.calls || 0} calls</div>
+                <div class="text-xs text-gray-500">Backend: ${stats.llm?.backend || 'openrouter'} · $${(stats.llm?.estimated_cost || 0).toFixed(4)}</div>
+            </div>
+        </div>
+        <h3 class="text-sm font-medium text-gray-400 uppercase mb-3">Dependencies</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">${depCards}</div>
+        <h3 class="text-sm font-medium text-gray-400 uppercase mb-3">ChromaDB Collections</h3>
+        <div class="bg-gray-900 rounded-lg p-4">
+            <table class="w-full text-sm"><tbody>${collectionRows}</tbody></table>
+        </div>
+        ${bootstrap.recommendation ? `<div class="mt-4 p-3 bg-blue-950/50 border border-blue-800 rounded text-sm text-blue-300">${bootstrap.recommendation}</div>` : ''}
+    `;
+}
+
+// ─── Master Context ─────────────────────────────────────
+async function load_context() {
+    const data = await api('/api/summary');
+    document.getElementById('content').innerHTML = `
+        <div class="flex justify-between items-center mb-3">
+            <div class="text-sm text-gray-500">~${data.tokens_estimate || 0} tokens · Degraded: ${data.degraded ? 'Yes' : 'No'}</div>
+        </div>
+        <div class="bg-gray-900 rounded-lg p-4">
+            <pre class="text-sm text-gray-300 leading-relaxed">${escHtml(data.summary || 'No context available')}</pre>
+        </div>
+    `;
+}
+
+// ─── Sessions ───────────────────────────────────────────
+async function load_sessions() {
+    const data = await api('/api/stats');
+    const sessions = data.recent_sessions || [];
+    const rows = sessions.map(s => `
+        <tr class="border-b border-gray-800 hover:bg-gray-900/50">
+            <td class="py-2 pr-4 font-mono text-xs text-blue-400">${s.session_id}</td>
+            <td class="py-2 pr-4 text-sm">${s.significance || '-'}</td>
+            <td class="py-2 pr-4 text-xs text-gray-500">${s.saved_at ? new Date(s.saved_at).toLocaleString() : '-'}</td>
+            <td class="py-2 text-xs">${s.processed ? '<span class="text-green-400">✓</span>' : '<span class="text-yellow-400">pending</span>'}</td>
+        </tr>
+    `).join('');
+
+    document.getElementById('content').innerHTML = `
+        <div class="mb-4 text-sm text-gray-500">Total: ${data.sessions?.total || 0} sessions (${data.sessions?.processed || 0} processed, ${data.sessions?.unprocessed || 0} pending)</div>
+        <div class="bg-gray-900 rounded-lg overflow-hidden">
+            <table class="w-full text-sm">
+                <thead><tr class="border-b border-gray-700 text-gray-500 text-xs uppercase">
+                    <th class="py-2 px-4 text-left">Session ID</th>
+                    <th class="py-2 text-left">Significance</th>
+                    <th class="py-2 text-left">Saved At</th>
+                    <th class="py-2 text-left">Status</th>
+                </tr></thead>
+                <tbody>${rows || '<tr><td colspan="4" class="py-4 text-center text-gray-500">No sessions yet</td></tr>'}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+// ─── Archive Search ─────────────────────────────────────
+async function load_search() {
+    document.getElementById('content').innerHTML = `
+        <div class="flex gap-2 mb-4">
+            <input id="search-input" type="text" placeholder="Search archive..." class="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" onkeydown="if(event.key==='Enter')doSearch()">
+            <select id="search-collection" class="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm">
+                <option value="">All collections</option>
+                <option value="sessions">Sessions</option>
+                <option value="project_archive">Project Archive</option>
+                <option value="decisions">Decisions</option>
+                <option value="failures">Failures</option>
+                <option value="entities">Entities</option>
+                <option value="patterns">Patterns</option>
+            </select>
+            <button onclick="doSearch()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Search</button>
+        </div>
+        <div id="search-results" class="text-gray-500 text-sm">Enter a query and press Search</div>
+    `;
+}
+
+async function doSearch() {
+    const query = document.getElementById('search-input').value;
+    if (!query) return;
+    const col = document.getElementById('search-collection').value;
+    document.getElementById('search-results').innerHTML = '<p class="text-gray-500">Searching...</p>';
+
+    const params = new URLSearchParams({ query, limit: '10' });
+    if (col) params.append('collections', col);
+    const data = await api('/api/search?' + params);
+
+    if (!data.results || data.results.length === 0) {
+        document.getElementById('search-results').innerHTML = '<p class="text-gray-500">No results found</p>';
+        return;
+    }
+
+    const cards = data.results.map(r => `
+        <div class="bg-gray-900 rounded-lg p-4 mb-3">
+            <div class="flex justify-between items-start mb-2">
+                <span class="text-xs font-mono text-blue-400">${r.collection}</span>
+                <span class="text-xs text-gray-500">distance: ${r.distance?.toFixed(3) || '?'}</span>
+            </div>
+            <p class="text-sm text-gray-300 mb-2">${escHtml(r.content?.substring(0, 500) || '')}</p>
+            <div class="text-xs text-gray-600">${r.id || ''}</div>
+        </div>
+    `).join('');
+
+    document.getElementById('search-results').innerHTML = `
+        <div class="text-sm text-gray-500 mb-3">${data.results.length} results for "${escHtml(query)}"</div>
+        ${cards}
+    `;
+}
+
+// ─── Entities ───────────────────────────────────────────
+async function load_entities() {
+    document.getElementById('content').innerHTML = '<p class="text-gray-500">Loading entities...</p>';
+    const data = await api('/api/search?query=people+projects+services&collections=entities&limit=30');
+
+    if (!data.results) {
+        document.getElementById('content').innerHTML = '<p class="text-gray-500">No entities found</p>';
+        return;
+    }
+
+    const grouped = {};
+    data.results.forEach(r => {
+        const type = r.metadata?.type || 'unknown';
+        if (!grouped[type]) grouped[type] = [];
+        grouped[type].push(r);
+    });
+
+    let html = '';
+    for (const [type, entities] of Object.entries(grouped).sort()) {
+        const items = entities.map(e => `
+            <div class="bg-gray-800 rounded p-3">
+                <div class="font-medium text-white text-sm">${escHtml(e.metadata?.name || e.id)}</div>
+                <div class="text-xs text-gray-400 mt-1">${escHtml(e.content?.substring(0, 200) || '')}</div>
+                ${e.metadata?.relationships ? `<div class="text-xs text-blue-400 mt-1">→ ${escHtml(e.metadata.relationships)}</div>` : ''}
+            </div>
+        `).join('');
+        html += `
+            <div class="mb-6">
+                <h3 class="text-sm font-medium text-gray-400 uppercase mb-2">${type} (${entities.length})</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">${items}</div>
+            </div>
+        `;
+    }
+
+    document.getElementById('content').innerHTML = html || '<p class="text-gray-500">No entities found</p>';
+}
+
+// ─── Nudges & Anomalies ─────────────────────────────────
+async function load_nudges() {
+    const [nudges, anomalies] = await Promise.all([
+        api('/api/nudges'), api('/api/anomalies')
+    ]);
+
+    const nudgeCards = (nudges.nudges || []).map(n => `
+        <div class="bg-gray-900 rounded-lg p-4 mb-2">
+            <div class="flex justify-between items-start">
+                <span class="text-xs px-2 py-0.5 rounded bg-blue-900/50 text-blue-300">${n.type || 'nudge'}</span>
+                <button onclick="dismissNudge('${escHtml(n.description?.substring(0,30) || '')}')" class="text-xs text-gray-600 hover:text-red-400">dismiss</button>
+            </div>
+            <p class="text-sm text-gray-300 mt-2">${escHtml(n.description || '')}</p>
+            ${n.evidence ? `<p class="text-xs text-gray-500 mt-1">${escHtml(n.evidence)}</p>` : ''}
+        </div>
+    `).join('') || '<p class="text-gray-500 text-sm">No active nudges</p>';
+
+    const anomalyCards = (anomalies.anomalies || []).map(a => `
+        <div class="bg-gray-900 rounded-lg p-4 mb-2 border-l-2 ${
+            a.severity === 'critical' ? 'border-red-500' :
+            a.severity === 'high' ? 'border-orange-500' :
+            a.severity === 'medium' ? 'border-yellow-500' : 'border-gray-600'}">
+            <div class="flex justify-between items-start">
+                <span class="text-xs px-2 py-0.5 rounded ${
+                    a.severity === 'critical' ? 'bg-red-900/50 text-red-300' :
+                    a.severity === 'high' ? 'bg-orange-900/50 text-orange-300' :
+                    'bg-yellow-900/50 text-yellow-300'}">${(a.severity || '').toUpperCase()} / ${a.type || 'anomaly'}</span>
+                <button onclick="dismissAnomaly('${escHtml(a.description?.substring(0,30) || '')}')" class="text-xs text-gray-600 hover:text-red-400">dismiss</button>
+            </div>
+            <p class="text-sm text-gray-300 mt-2">${escHtml(a.description || '')}</p>
+            ${a.evidence ? `<p class="text-xs text-gray-500 mt-1">Evidence: ${escHtml(a.evidence)}</p>` : ''}
+        </div>
+    `).join('') || '<p class="text-gray-500 text-sm">No active anomalies</p>';
+
+    document.getElementById('content').innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="text-sm font-medium text-gray-400 uppercase mb-3">Nudges (${nudges.stats?.active || 0} active)</h3>
+                ${nudgeCards}
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-400 uppercase mb-3">Anomalies (${anomalies.stats?.active || 0} active)</h3>
+                ${anomalyCards}
+            </div>
+        </div>
+    `;
+}
+
+async function dismissNudge(desc) {
+    await api('/api/nudges/dismiss', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({description: desc}) });
+    load_nudges();
+}
+async function dismissAnomaly(desc) {
+    await api('/api/anomalies/dismiss', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({description: desc}) });
+    load_nudges();
+}
+
+// ─── Backups ────────────────────────────────────────────
+async function load_backups() {
+    const data = await api('/api/backup/list');
+    const rows = (data.backups || []).map(b => `
+        <tr class="border-b border-gray-800 hover:bg-gray-900/50">
+            <td class="py-2 pr-4 font-mono text-xs text-white">${b.name}</td>
+            <td class="py-2 pr-4 text-xs text-gray-400">${b.components?.join(', ') || '-'}</td>
+            <td class="py-2 pr-4 text-xs text-gray-500">${(b.size_bytes/1024).toFixed(1)} KB</td>
+            <td class="py-2 text-xs">
+                <span class="${b.location?.includes('minio') ? 'text-green-400' : 'text-gray-500'}">${b.location || 'local'}</span>
+            </td>
+        </tr>
+    `).join('');
+
+    document.getElementById('content').innerHTML = `
+        <div class="flex justify-between items-center mb-4">
+            <div class="text-sm text-gray-500">${data.count || 0} backups · MinIO: ${data.minio_available ? '<span class="text-green-400">connected</span>' : '<span class="text-gray-500">unavailable</span>'}</div>
+            <button onclick="createBackup()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Create Backup</button>
+        </div>
+        <div class="bg-gray-900 rounded-lg overflow-hidden">
+            <table class="w-full text-sm">
+                <thead><tr class="border-b border-gray-700 text-gray-500 text-xs uppercase">
+                    <th class="py-2 px-4 text-left">Name</th>
+                    <th class="py-2 text-left">Components</th>
+                    <th class="py-2 text-left">Size</th>
+                    <th class="py-2 text-left">Location</th>
+                </tr></thead>
+                <tbody>${rows || '<tr><td colspan="4" class="py-4 text-center text-gray-500">No backups yet</td></tr>'}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+async function createBackup() {
+    const btn = event.target;
+    btn.textContent = 'Creating...';
+    btn.disabled = true;
+    const result = await api('/api/backup/create', { method: 'POST' });
+    btn.textContent = 'Create Backup';
+    btn.disabled = false;
+    load_backups();
+}
+
+// ─── Helpers ────────────────────────────────────────────
+function escHtml(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── Init ───────────────────────────────────────────────
+loadHeader();
+load_overview();
+setInterval(loadHeader, 30000);
+</script>
+</body>
+</html>

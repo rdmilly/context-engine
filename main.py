@@ -29,19 +29,23 @@ from utils.degradation import get_manager as get_degradation_manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown logic."""
+    # Startup
     logger.info("=" * 60)
-    logger.info("ContextEngine v0.3.0 starting up...")
+    logger.info("ContextEngine v0.2.0 starting up...")
     logger.info(f"  Port: {PORT}")
     logger.info(f"  Debug: {DEBUG}")
     logger.info(f"  Learning mode: {LEARNING_MODE}")
 
+    # Ensure data directories exist
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     (DATA_DIR / "backups").mkdir(parents=True, exist_ok=True)
 
+    # Check KB Gateway
     dm = get_degradation_manager()
     if kb_gateway.kb_accessible():
         logger.info("  KB Gateway: accessible")
+        # Initialize master context cache
         mc = kb_gateway.read_master_context()
         if mc:
             dm.update_cache(mc, source="startup")
@@ -49,6 +53,7 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("  KB Gateway: NOT accessible — degraded mode")
 
+    # Check ChromaDB and ensure collections
     if chromadb_client.is_connected():
         logger.info("  ChromaDB: connected")
         collections = chromadb_client.ensure_collections()
@@ -56,14 +61,17 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("  ChromaDB: NOT connected — degraded mode")
 
+    # Check OpenRouter
     if OPENROUTER_API_KEY and not OPENROUTER_API_KEY.startswith("placeholder"):
         logger.info("  OpenRouter: API key configured")
     else:
         logger.warning("  OpenRouter: NOT configured — worker will fail")
 
+    # Count existing sessions
     session_count = len(list(SESSIONS_DIR.glob("*.json")))
     logger.info(f"  Existing sessions: {session_count}")
 
+    # Start worker processor
     processor = get_processor()
     processor.start()
     logger.info("  Worker: started")
@@ -73,6 +81,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    # Shutdown
     logger.info("ContextEngine shutting down...")
     processor = get_processor()
     processor.stop()
@@ -86,6 +95,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS (internal only, but useful for debugging)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -93,6 +103,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount routers
 from routers import load, save, search, correct, internal, checkpoint, bootstrap, backup
 
 app.include_router(load.router, tags=["MCP Tools"])
@@ -104,6 +115,8 @@ app.include_router(internal.router, tags=["Internal"])
 app.include_router(bootstrap.router, tags=["Bootstrap"])
 app.include_router(backup.router, tags=["Backup"])
 
+
+# Dashboard
 _static_dir = _Path(__file__).parent / "static"
 if _static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")

@@ -1,7 +1,15 @@
 # ContextEngine — Standalone Product Edition
-# docker compose -f docker-compose.product.yml up -d
+# Single docker-compose that brings up everything self-contained.
+# No external KB mount required. No MinIO required.
 #
-# Supports: OpenRouter (cloud, ~$3-5/month) or Ollama (local, free)
+# Usage:
+#   1. Copy this file + the context-engine source to a directory
+#   2. Set your LLM provider credentials in .env
+#   3. docker compose -f docker-compose.product.yml up -d
+#
+# Supports two LLM backends:
+#   - OpenRouter (cloud, ~$3-5/month): Set OPENROUTER_API_KEY in .env
+#   - Ollama (local, free): Install Ollama, set LLM_BACKEND=ollama in .env
 
 services:
   context-engine:
