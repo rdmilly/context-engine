@@ -1,0 +1,73 @@
+# ContextEngine — Standalone Product Edition
+# docker compose -f docker-compose.product.yml up -d
+#
+# Supports: OpenRouter (cloud, ~$3-5/month) or Ollama (local, free)
+
+services:
+  context-engine:
+    build: .
+    container_name: context-engine
+    ports:
+      - "${CE_PORT:-9040}:9040"
+    environment:
+      - PORT=9040
+      - CHROMADB_HOST=context-engine-chromadb
+      - CHROMADB_PORT=8000
+      - STANDALONE_MODE=true
+      - LEARNING_MODE=${LEARNING_MODE:-true}
+      - LLM_BACKEND=${LLM_BACKEND:-openrouter}
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL_LIGHT=${OLLAMA_MODEL_LIGHT:-llama3.2:3b}
+      - OLLAMA_MODEL_HEAVY=${OLLAMA_MODEL_HEAVY:-llama3.1:8b}
+    env_file:
+      - .env
+    volumes:
+      - ce-data:/app/data
+    depends_on:
+      chromadb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - context-engine
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9040/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: context-engine-chromadb
+    volumes:
+      - ce-chromadb:/data
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    restart: unless-stopped
+    networks:
+      - context-engine
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /data/chroma.sqlite3"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  ce-data:
+    driver: local
+  ce-chromadb:
+    driver: local
+
+networks:
+  context-engine:
+    driver: bridge

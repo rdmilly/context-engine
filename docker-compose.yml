@@ -1,0 +1,76 @@
+# ContextEngine — Development/Self-hosted Edition
+# Mounts external KB and data directories
+
+services:
+  context-engine:
+    build: .
+    container_name: context-engine
+    ports:
+      - "9040:9040"
+    environment:
+      - PORT=9040
+      - CHROMADB_HOST=context-engine-chromadb
+      - CHROMADB_PORT=8000
+      - KB_ROOT=/data/kb
+      - SESSIONS_DIR=/app/data/sessions
+      - LOGS_DIR=/app/data/logs
+      - PROMPTS_DIR=/app/data/prompts
+      - LEARNING_MODE=false
+      - TRANSCRIPTS_DIR=/app/data/transcripts
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET=contextengine-backups
+      - MINIO_SECURE=false
+    env_file:
+      - .env
+    volumes:
+      - ./data/kb:/data/kb
+      - ./data/sessions:/app/data/sessions
+      - ./data/logs:/app/data/logs
+      - ./data/prompts:/app/data/prompts
+      - ./data/transcripts:/app/data/transcripts
+      - ./data/backups:/app/data/backups
+    depends_on:
+      - chromadb
+    restart: unless-stopped
+    networks:
+      - context-engine
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9040/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: context-engine-chromadb
+    ports:
+      - "9041:8000"
+    volumes:
+      - ./data/chromadb:/data
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    restart: unless-stopped
+    networks:
+      - context-engine
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /data/chroma.sqlite3"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  context-engine:
+    driver: bridge
