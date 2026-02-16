@@ -83,7 +83,7 @@ async def create_backup(include_sessions: bool = False):
     try:
         client = chromadb_client.get_chromadb()
         export = {}
-        for col_name in ["sessions", "project_archive", "decisions", "failures", "entities", "patterns"]:
+        for col_name in ["sessions", "project_archive", "decisions", "failures", "entities", "patterns", "snapshots", "anomalies"]:
             try:
                 col = client.get_collection(col_name)
                 if col.count() > 0:
