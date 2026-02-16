@@ -32,8 +32,8 @@ def send_alert(title: str, body: str, level: str = "info") -> bool:
             resp = httpx.post(N8N_WEBHOOK_URL, json={"title": title, "body": body, "level": level}, timeout=10.0)
             resp.raise_for_status()
             return True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"n8n webhook failed: {e}")
     return _send_telegram_direct(message)
 
 

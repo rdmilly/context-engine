@@ -1,6 +1,5 @@
 """MinIO client for backup storage."""
 
-import io
 import json
 from pathlib import Path
 from typing import Optional, List
@@ -33,17 +32,15 @@ def upload_backup(backup_dir: Path, backup_name: str) -> dict:
     client = get_minio()
     if client is None:
         return {"success": False, "error": "MinIO not available", "uploaded": 0}
-    uploaded = 0
-    errors = []
-    for filepath in backup_dir.iterdir():
-        if not filepath.is_file():
+    uploaded, errors = 0, []
+    for fp in backup_dir.iterdir():
+        if not fp.is_file():
             continue
-        object_name = f"{backup_name}/{filepath.name}"
         try:
-            client.fput_object(MINIO_BUCKET, object_name, str(filepath))
+            client.fput_object(MINIO_BUCKET, f"{backup_name}/{fp.name}", str(fp))
             uploaded += 1
         except S3Error as e:
-            errors.append(f"{filepath.name}: {e}")
+            errors.append(f"{fp.name}: {e}")
     return {"success": uploaded > 0, "uploaded": uploaded, "errors": errors, "bucket": MINIO_BUCKET, "prefix": backup_name}
 
 
@@ -52,8 +49,7 @@ def download_backup(backup_name: str, target_dir: Path) -> dict:
     if client is None:
         return {"success": False, "error": "MinIO not available", "downloaded": 0}
     target_dir.mkdir(parents=True, exist_ok=True)
-    downloaded = 0
-    errors = []
+    downloaded, errors = 0, []
     try:
         for obj in client.list_objects(MINIO_BUCKET, prefix=f"{backup_name}/", recursive=True):
             filename = obj.object_name.split("/")[-1]
@@ -81,10 +77,10 @@ def list_remote_backups() -> List[dict]:
         for prefix in sorted(prefixes, reverse=True):
             meta = {}
             try:
-                response = client.get_object(MINIO_BUCKET, f"{prefix}/metadata.json")
-                meta = json.loads(response.read().decode())
-                response.close()
-                response.release_conn()
+                resp = client.get_object(MINIO_BUCKET, f"{prefix}/metadata.json")
+                meta = json.loads(resp.read().decode())
+                resp.close()
+                resp.release_conn()
             except Exception:
                 pass
             backups.append({"name": prefix, "timestamp": meta.get("timestamp", prefix), "location": "minio"})

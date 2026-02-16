@@ -4,6 +4,7 @@ import json
 import chromadb
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
+
 from config import CHROMADB_HOST, CHROMADB_PORT, COLLECTIONS
 from utils.logging_ import logger
 from utils.degradation import get_manager as get_degradation_manager
@@ -31,8 +32,8 @@ def ensure_collections() -> dict:
     result = {}
     for name, meta in COLLECTIONS.items():
         try:
-            collection = client.get_or_create_collection(name=name, metadata={"description": meta["description"]})
-            result[name] = collection
+            coll = client.get_or_create_collection(name=name, metadata={"description": meta["description"]})
+            result[name] = coll
         except Exception as e:
             logger.error(f"Failed to ensure collection '{name}': {e}")
     return result
@@ -42,13 +43,15 @@ def get_collection_stats() -> dict:
     try:
         client = get_client()
         return {name: client.get_collection(name).count() for name in COLLECTIONS}
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to get stats: {e}")
         return {}
 
 
 def add_document(collection_name: str, doc_id: str, content: str, metadata: Dict[str, Any] = None) -> bool:
     try:
-        collection = get_client().get_collection(collection_name)
+        client = get_client()
+        collection = client.get_collection(collection_name)
         meta = metadata or {}
         meta["created_at"] = datetime.now(timezone.utc).isoformat()
         clean_meta = {}
@@ -70,7 +73,8 @@ def add_document(collection_name: str, doc_id: str, content: str, metadata: Dict
 
 def upsert_document(collection_name: str, doc_id: str, content: str, metadata: Dict[str, Any] = None) -> bool:
     try:
-        collection = get_client().get_collection(collection_name)
+        client = get_client()
+        collection = client.get_collection(collection_name)
         meta = metadata or {}
         meta["updated_at"] = datetime.now(timezone.utc).isoformat()
         clean_meta = {}
@@ -92,7 +96,8 @@ def upsert_document(collection_name: str, doc_id: str, content: str, metadata: D
 
 def search_collection(collection_name: str, query: str, n_results: int = 5, where: Dict = None) -> List[Dict[str, Any]]:
     try:
-        collection = get_client().get_collection(collection_name)
+        client = get_client()
+        collection = client.get_collection(collection_name)
         kwargs = {"query_texts": [query], "n_results": min(n_results, collection.count() or 1)}
         if where:
             kwargs["where"] = where
@@ -115,7 +120,8 @@ def search_collection(collection_name: str, query: str, n_results: int = 5, wher
 
 def take_snapshot(collection_name: str, doc_id: str) -> bool:
     try:
-        source = get_client().get_collection(collection_name)
+        client = get_client()
+        source = client.get_collection(collection_name)
         existing = source.get(ids=[doc_id], include=["documents", "metadatas"])
         if not existing or not existing["ids"]:
             return False
@@ -133,7 +139,8 @@ def take_snapshot(collection_name: str, doc_id: str) -> bool:
 
 def get_recent_sessions(n: int = 10) -> List[Dict[str, Any]]:
     try:
-        collection = get_client().get_collection("sessions")
+        client = get_client()
+        collection = client.get_collection("sessions")
         count = collection.count()
         if count == 0:
             return []
@@ -141,7 +148,11 @@ def get_recent_sessions(n: int = 10) -> List[Dict[str, Any]]:
         items = []
         if results and results["ids"]:
             for i, doc_id in enumerate(results["ids"]):
-                items.append({"id": doc_id, "content": results["documents"][i] if results["documents"] else "", "metadata": results["metadatas"][i] if results["metadatas"] else {}})
+                items.append({
+                    "id": doc_id,
+                    "content": results["documents"][i] if results["documents"] else "",
+                    "metadata": results["metadatas"][i] if results["metadatas"] else {},
+                })
         items.sort(key=lambda x: x.get("metadata", {}).get("created_at", ""), reverse=True)
         return items[:n]
     except Exception as e:
