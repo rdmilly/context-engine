@@ -68,7 +68,7 @@ def _load_settings() -> AllSettings:
     settings = AllSettings(
         llm=LLMSettings(
             base_url=os.environ.get("LLM_BASE_URL", os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")),
-            api_key=os.environ.get("LLM_API_KEY", os.environ.get("OPENROUTER_API_KEY", "")),
+            api_key=os.environ.get("LLM_API_KEY", "") or os.environ.get("OPENROUTER_API_KEY", ""),
             model_fast=os.environ.get("LLM_MODEL_FAST", "anthropic/claude-haiku-4.5"),
             model_smart=os.environ.get("LLM_MODEL_SMART", "anthropic/claude-sonnet-4.5"),
         ),

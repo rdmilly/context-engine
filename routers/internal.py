@@ -20,7 +20,7 @@ _start_time = time.time()
 async def health():
     sessions_count = len(list(SESSIONS_DIR.glob("*.json"))) if SESSIONS_DIR.exists() else 0
     dm = get_degradation_manager()
-    return HealthResponse(status="healthy" if dm.level.value in ("full", "partial") else "degraded", version="0.3.0", chromadb_connected=chromadb_client.is_connected(), kb_accessible=kb_gateway.kb_accessible(), sessions_count=sessions_count, uptime_seconds=round(time.time() - _start_time, 1), learning_mode=LEARNING_MODE, degradation_level=dm.level.value)
+    return HealthResponse(status="healthy" if dm.level.value in ("full", "partial") else "degraded", version="0.4.0", chromadb_connected=chromadb_client.is_connected(), kb_accessible=kb_gateway.kb_accessible(), sessions_count=sessions_count, uptime_seconds=round(time.time() - _start_time, 1), learning_mode=LEARNING_MODE, degradation_level=dm.level.value)
 
 
 @router.get("/api/summary")
