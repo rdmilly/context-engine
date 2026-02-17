@@ -100,6 +100,13 @@ class WorkerProcessor:
             logger.warning(f"Auto-backup: {e}")
         self._last_backup_time = _time.time()
 
+        # Check LLM credits (daily, after backup)
+        try:
+            from services.credit_tracker import check_and_alert
+            check_and_alert()
+        except Exception as e:
+            logger.debug(f"Credit check: {e}")
+
         # Run retention (daily, after backup)
         try:
             from services.retention import run_retention
@@ -236,6 +243,15 @@ class WorkerProcessor:
                             logger.error("Worker: BLOCKING master context update due to high-severity integrity failure")
                             # Still take a snapshot of what would have been written
                             await self._take_snapshot(f"{session_id}-blocked", new_master["master_context_markdown"])
+                            # Alert Ryan via Telegram
+                            try:
+                                from services.webhook import send_alert
+                                details = integrity.get("details", "unknown")[:300]
+                                dropped = integrity.get("drop_count", "?")
+                                msg = f"Session: {session_id} | Dropped: {dropped} facts | {details}"
+                                send_alert("Master Context Update BLOCKED", msg, level="error")
+                            except Exception as alert_err:
+                                logger.warning(f"Worker: failed to send block alert: {alert_err}")
                         else:
                             # Medium/low = write but log the warning
                             await asyncio.to_thread(write_master_context, new_master["master_context_markdown"])
@@ -252,6 +268,11 @@ class WorkerProcessor:
                     logger.info(f"Worker: master context updated — {len(changes)} changes")
             else:
                 logger.warning("Worker: master context compression failed, keeping existing")
+                try:
+                    from services.webhook import send_alert
+                    send_alert("Master Compression Failed", f"Session: {session_id} | LLM returned no result.", level="warning")
+                except Exception:
+                    pass
 
             # 8. Mark session as processed
             self._mark_processed(session_file, session_id, summary_result, triage_result)
@@ -265,7 +286,24 @@ class WorkerProcessor:
                         llm.update_cockpit, current_cockpit, session_data
                     )
                     if cockpit_result and cockpit_result.get("cockpit_markdown"):
-                        write_cockpit(cockpit_result["cockpit_markdown"])
+                        cockpit_md = cockpit_result["cockpit_markdown"]
+                        # Inject credit tracker data (deterministic, no LLM cost)
+                        try:
+                            from services.credit_tracker import format_for_cockpit, check_and_alert
+                            credit_lines = format_for_cockpit()
+                            if credit_lines:
+                                if "LLM Credits" in cockpit_md:
+                                    import re
+                                    pat = re.compile(r"\| LLM Credits \|[^\n]*\n(\| LLM Spend \|[^\n]*\n)?")
+                                    cockpit_md = pat.sub(credit_lines + "\n", cockpit_md)
+                                elif "SYSTEM HEALTH" in cockpit_md:
+                                    cockpit_md = cockpit_md.replace("## SYSTEM HEALTH", "## SYSTEM HEALTH\n\n" + credit_lines, 1)
+                                else:
+                                    cockpit_md += "\n\n## LLM CREDITS\n\n| Metric | Value | Status |\n|--------|-------|--------|\n" + credit_lines + "\n"
+                            check_and_alert()
+                        except Exception as e:
+                            logger.debug(f"Worker: credit tracker inject skipped: {e}")
+                        write_cockpit(cockpit_md)
                         updated = cockpit_result.get("projects_updated", [])
                         logger.info(f"Worker: cockpit updated — projects: {updated}")
                     else:
@@ -351,7 +389,8 @@ class WorkerProcessor:
             logger.info(f"Worker: {session_id} processed successfully")
 
         except Exception as e:
-            logger.error(f"Worker: error processing {session_id}: {e}")
+            import traceback
+            logger.error(f"Worker: error processing {session_id}: {e}\n{traceback.format_exc()}")
             self.stats["failed"] += 1
             self.stats["last_error"] = str(e)
         finally:

@@ -1,7 +1,7 @@
 """
 Post-compression integrity checker.
 
-After Haiku compresses the master context, this module verifies that
+After LLM compresses the master context, this module verifies that
 known infrastructure facts weren't dropped. Deterministic pattern
 matching — no LLM cost.
 
@@ -21,10 +21,20 @@ from pathlib import Path
 logger = logging.getLogger("context-engine")
 
 
-# ── Known facts registry ──────────────────────────────────────────
-# These are populated from ChromaDB entities + KB auto-detected changes.
-# If a fact was in the pre-compression context but missing from post,
-# it gets flagged.
+# Stopwords that the container regex should never match
+_CONTAINER_STOPWORDS = {
+    'the', 'and', 'for', 'not', 'are', 'was', 'has', 'into', 'from',
+    'with', 'that', 'this', 'will', 'can', 'but', 'all', 'its',
+    'port', 'ports', 'points', 'point', 'network', 'networks', 'image',
+    'service', 'stack', 'compose', 'docker', 'container', 'build',
+    'custom', 'latest', 'alpine', 'active', 'new', 'production',
+    'deployed', 'enabled', 'migrated', 'complete', 'pending',
+    'running', 'healthy', 'ready', 'live', 'name', 'status',
+    'phase', 'version', 'current', 'next', 'steps', 'used',
+    'base', 'lifecycle', 'management', 'system', 'bridge',
+    'pipeline', 'endpoint', 'module', 'worker', 'router',
+}
+
 
 def extract_infrastructure_facts(text: str) -> dict:
     """Extract verifiable facts from a context document."""
@@ -40,7 +50,7 @@ def extract_infrastructure_facts(text: str) -> dict:
     # Ports: 4-5 digit numbers in port-like context
     for m in re.finditer(r'\b(\d{4,5})(?::\d{2,5})?\b', text):
         port = int(m.group(1))
-        if 1024 <= port <= 65535:
+        if 1024 <= port <= 65535 and not (2020 <= port <= 2035):
             facts["ports"].add(str(port))
 
     # Also catch port:port patterns
@@ -49,19 +59,27 @@ def extract_infrastructure_facts(text: str) -> dict:
 
     # Container/service names (common patterns)
     container_patterns = [
-        r'container[:\s]+[`"]?(\S+?)[`"]?[\s,\.]',
+        r'container[:\s]+[`"]?([a-z][a-z0-9_-]+)[`"]?[\s,\.]',
         r'(?:docker|container)\s+(?:name\s+)?[`"]?([a-z][a-z0-9_-]+)[`"]?',
         r'(?:service|stack)[:\s]+[`"]?([a-z][a-z0-9_-]+)[`"]?',
     ]
     for pat in container_patterns:
         for m in re.finditer(pat, text, re.IGNORECASE):
-            name = m.group(1).strip('`"\'')
-            if len(name) > 2 and name not in ('the', 'and', 'for', 'not'):
+            name = m.group(1).strip('`"\'').lower()
+            if (len(name) > 2
+                and name not in _CONTAINER_STOPWORDS
+                and not name.startswith('-')
+                and not name.startswith('|')
+                and not re.match(r'^[-|]+$', name)):
                 facts["containers"].add(name)
 
     # Domains
     for m in re.finditer(r'(?:https?://)?([a-z0-9][-a-z0-9]*\.(?:millyweb\.com|dartai\.com|github\.com|openrouter\.ai)[/\w.-]*)', text, re.IGNORECASE):
-        facts["domains"].add(m.group(1).rstrip('/'))
+        domain = m.group(1).rstrip('/').rstrip('.')
+        # Normalize: strip path, keep just domain
+        if '/' in domain:
+            domain = domain.split('/')[0]
+        facts["domains"].add(domain)
 
     # IP addresses
     for m in re.finditer(r'\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b', text):
@@ -87,6 +105,10 @@ def check_integrity(
     """
     Compare pre and post compression context for dropped facts.
 
+    KB facts are used as a validation reference — they do NOT get merged
+    into the pre-compression set. Only facts that existed in the
+    pre-compression text can be flagged as dropped.
+
     Returns:
         {
             "passed": bool,
@@ -99,11 +121,10 @@ def check_integrity(
     pre_facts = extract_infrastructure_facts(pre_compression)
     post_facts = extract_infrastructure_facts(post_compression)
 
-    # Merge in KB facts if provided (these are ground truth)
-    if kb_facts:
-        for category, values in kb_facts.items():
-            if category in pre_facts:
-                pre_facts[category].update(values)
+    # NOTE: We deliberately do NOT merge kb_facts into pre_facts.
+    # That was causing false positives — containers from auto-detected-changes.md
+    # (e.g. postiz-postgres, temporal) were being injected into the expected set
+    # even though they were never in the master context.
 
     dropped = {}
     total_dropped = 0
@@ -114,13 +135,15 @@ def check_integrity(
             dropped[category] = sorted(missing)
             total_dropped += len(missing)
 
-    # Severity based on what was dropped
+    # Severity based on what was dropped (proportional)
     if total_dropped == 0:
         severity = "none"
-    elif dropped.get("ports") or dropped.get("ips") or dropped.get("containers"):
+    elif dropped.get("ips") or len(dropped.get("ports", [])) >= 3 or len(dropped.get("containers", [])) >= 3:
         severity = "high"
-    elif dropped.get("domains") or dropped.get("projects"):
+    elif dropped.get("ports") or dropped.get("containers") or dropped.get("domains"):
         severity = "medium"
+    elif dropped.get("projects"):
+        severity = "low"
     else:
         severity = "low"
 
@@ -138,7 +161,11 @@ def check_integrity(
 
 
 def load_kb_facts(kb_root: str) -> dict:
-    """Load known facts from KB auto-detected-changes.md"""
+    """Load known facts from KB auto-detected-changes.md.
+    
+    These are used as reference data only — they are NOT merged into
+    the pre-compression fact set. See check_integrity() for details.
+    """
     facts = {
         "ports": set(),
         "containers": set(),
@@ -152,10 +179,10 @@ def load_kb_facts(kb_root: str) -> dict:
     content = changes_file.read_text()
 
     # Parse service tables: | service_name | image | port | network |
-    for m in re.finditer(r'\|\s*(\S+)\s*\|\s*(\S+)\s*\|\s*(\d+:\d+|\S+)\s*\|', content):
+    for m in re.finditer(r'\|\s*([a-z][a-z0-9_-]+)\s*\|\s*(\S+)\s*\|\s*(\d+:\d+|\S+)\s*\|', content):
         service = m.group(1).strip()
         port_str = m.group(3).strip()
-        if service not in ('Service', '---', 'service'):
+        if service.lower() not in ('service', '---', 'service_name'):
             facts["containers"].add(service)
         if ':' in port_str:
             host_port = port_str.split(':')[0]

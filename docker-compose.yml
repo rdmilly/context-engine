@@ -20,7 +20,7 @@ services:
       - TRANSCRIPTS_DIR=/app/data/transcripts
       - LLM_BASE_URL=${LLM_BASE_URL:-https://openrouter.ai/api/v1}
       - LLM_MODEL_FAST=${LLM_MODEL_FAST:-anthropic/claude-haiku-4.5}
-      - LLM_MODEL_SMART=${LLM_MODEL_SMART:-anthropic/claude-haiku-4.5}
+      - LLM_MODEL_SMART=${LLM_MODEL_SMART:-anthropic/claude-sonnet-4.5}
       - WATCH_GIT_ROOT=/watch
     volumes:
       - ce-data:/app/data

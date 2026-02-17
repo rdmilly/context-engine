@@ -130,6 +130,29 @@ async def get_degradation_status():
     return get_degradation_manager().status
 
 
+@router.get("/api/credits")
+async def get_credits():
+    """Get current OpenRouter credit balance and usage."""
+    try:
+        from services.credit_tracker import fetch_credits
+        data = fetch_credits(force=True)
+        if data:
+            return data
+        return {"error": "Could not fetch credits (not using OpenRouter?)"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @router.get("/api/setup/claude-desktop")
 async def claude_desktop_config():
     return {"config": {"mcpServers": {"context-engine": {"command": "python3", "args": ["<path-to>/mcp-bridge.py"], "env": {"CONTEXT_ENGINE_URL": "http://localhost:9040"}}}}}
+
+
+@router.get("/api/cockpit")
+async def get_cockpit():
+    """Serve the daily cockpit markdown for the dashboard."""
+    from services.cockpit import read_cockpit
+    content = read_cockpit()
+    if content is None:
+        return {"cockpit": None, "error": "Cockpit file not found"}
+    return {"cockpit": content, "last_modified": None}

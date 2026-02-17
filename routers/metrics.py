@@ -156,6 +156,20 @@ async def prometheus_metrics():
     # ── Learning mode ──────────────────────────────────
     lines.append(_prom_line("contextengine_learning_mode", 1 if LEARNING_MODE else 0, "Learning mode enabled (1=yes)", "gauge"))
 
+    # ── LLM Credits ────────────────────────────────────
+    try:
+        from services.credit_tracker import fetch_credits
+        creds = fetch_credits()
+        if creds:
+            lines.append(_prom_line("contextengine_credits_remaining", creds["remaining"], "OpenRouter credits remaining (dollars)", "gauge"))
+            lines.append(_prom_line("contextengine_credits_usage_daily", creds["usage_daily"], "OpenRouter daily spend (dollars)", "gauge"))
+            lines.append(_prom_line("contextengine_credits_usage_monthly", creds["usage_monthly"], "OpenRouter monthly spend (dollars)", "gauge"))
+            if creds["days_remaining"] is not None:
+                lines.append(_prom_line("contextengine_credits_runway_days", creds["days_remaining"], "Estimated days of credits remaining", "gauge"))
+            lines.append(_prom_line("contextengine_credits_low", 1 if creds["low_balance"] else 0, "Low credit balance alert (1=low)", "gauge"))
+    except Exception:
+        pass
+
     # ── KB accessible ──────────────────────────────────
     try:
         lines.append(_prom_line("contextengine_kb_accessible", 1 if kb_gateway.kb_accessible() else 0, "KB Gateway reachable (1=yes)", "gauge"))

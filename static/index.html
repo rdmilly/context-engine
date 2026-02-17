@@ -36,7 +36,8 @@
 
         <!-- Tabs -->
         <div class="flex gap-1 border-b border-gray-800 mb-6 overflow-x-auto">
-            <button onclick="showTab('overview')" class="tab px-4 py-2 text-sm hover:text-white tab-active" id="tab-overview">Overview</button>
+            <button onclick="showTab('cockpit')" class="tab px-4 py-2 text-sm hover:text-white tab-active" id="tab-cockpit">🎯 Cockpit</button>
+            <button onclick="showTab('overview')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-overview">Overview</button>
             <button onclick="showTab('context')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-context">Master Context</button>
             <button onclick="showTab('sessions')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-sessions">Sessions</button>
             <button onclick="showTab('search')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-search">Archive Search</button>
@@ -52,7 +53,7 @@
 
 <script>
 const API = '';  // Same origin
-let currentTab = 'overview';
+let currentTab = 'cockpit';
 
 async function api(path, opts = {}) {
     try {
@@ -98,6 +99,52 @@ async function loadHeader() {
 }
 
 // ─── Overview ───────────────────────────────────────────
+// ─── Cockpit (Project Dashboard) ──────────────────────────
+async function load_cockpit() {
+    const data = await api('/api/cockpit');
+    const el = document.getElementById('content');
+    if (!data || !data.cockpit) {
+        el.innerHTML = '<div class="bg-gray-900 rounded-lg p-6 text-center"><p class="text-gray-400">Cockpit data not available yet.</p><p class="text-sm text-gray-600 mt-2">It will be generated after the next session save.</p></div>';
+        return;
+    }
+    const md = data.cockpit;
+    el.innerHTML = '<div class="cockpit-view">' + renderCockpitMd(md) + '</div>';
+}
+
+function renderCockpitMd(md) {
+    let html = md;
+    // Headers
+    html = html.replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold text-white mt-6 mb-2">$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold text-blue-400 mt-8 mb-3 pb-2 border-b border-gray-800">$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold text-white mb-1">$1</h1>');
+    // Bold
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="text-white">$1</strong>');
+    // Blockquote
+    html = html.replace(/^> (.+)$/gm, '<div class="border-l-4 border-blue-500 pl-4 py-1 my-2 text-gray-400 italic">$1</div>');
+    // Checkboxes
+    html = html.replace(/^- \[x\] (.+)$/gm, '<div class="flex items-center gap-2 py-0.5"><span class="text-green-400">\u2611</span> <span class="line-through text-gray-500">$1</span></div>');
+    html = html.replace(/^- \[ \] (.+)$/gm, '<div class="flex items-center gap-2 py-0.5"><span class="text-yellow-400">\u2610</span> <span>$1</span></div>');
+    // Health indicators
+    html = html.replace(/\u{1F7E2}/gu, '<span class="inline-block w-3 h-3 rounded-full bg-green-500 mr-1"></span>');
+    html = html.replace(/\u{1F7E1}/gu, '<span class="inline-block w-3 h-3 rounded-full bg-yellow-500 mr-1"></span>');
+    html = html.replace(/\u{1F534}/gu, '<span class="inline-block w-3 h-3 rounded-full bg-red-500 mr-1"></span>');
+    // Tables
+    html = html.replace(/^\|(.+)\|$/gm, function(match) {
+        const cells = match.split('|').filter(c => c.trim());
+        if (cells.every(c => /^[\s-:]+$/.test(c))) return '';
+        const tds = cells.map(c => '<td class="px-3 py-1.5 border-b border-gray-800">' + c.trim() + '</td>').join('');
+        return '<tr class="hover:bg-gray-900/50">' + tds + '</tr>';
+    });
+    html = html.replace(/(<tr[^>]*>.*<\/tr>\n?)+/g, '<div class="overflow-x-auto my-4"><table class="w-full text-sm bg-gray-900 rounded-lg overflow-hidden">$&</table></div>');
+    // Horizontal rules
+    html = html.replace(/^---$/gm, '<hr class="border-gray-800 my-4">');
+    // List items
+    html = html.replace(/^- (.+)$/gm, '<div class="flex gap-2 py-0.5"><span class="text-gray-600">\u2022</span> <span>$1</span></div>');
+    // Paragraphs — wrap remaining text lines
+    html = html.replace(/^(?!<[hd\u2022tHr]|$)(.+)$/gm, '<p class="text-gray-300 text-sm leading-relaxed">$1</p>');
+    return '<div class="bg-gray-900 rounded-lg p-6 space-y-1">' + html + '</div>';
+}
+
 async function load_overview() {
     const [health, deg, stats, bootstrap] = await Promise.all([
         api('/api/health'), api('/api/degradation'), api('/api/stats'), api('/api/bootstrap/status')
@@ -593,7 +640,7 @@ function escHtml(s) {
 
 // ─── Init ───────────────────────────────────────────────
 loadHeader();
-load_overview();
+load_cockpit();
 setInterval(loadHeader, 30000);
 </script>
 </body>
