@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown logic."""
     # Startup
     logger.info("=" * 60)
-    logger.info("ContextEngine v0.4.0 starting up...")
+    logger.info("Memory v0.4.1 starting up...")
     logger.info(f"  Port: {PORT}")
     logger.info(f"  Debug: {DEBUG}")
     logger.info(f"  Learning mode: {LEARNING_MODE}")
@@ -112,24 +112,37 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("  FileWatcher: disabled (WATCH_DIRS not set)")
 
-    logger.info("ContextEngine ready.")
+    # Start daily digest scheduler (Telegram morning update)
+    try:
+        from services.daily_digest import start_scheduler as start_digest
+        start_digest()
+        logger.info("  Daily digest: scheduler started (7:00 AM PST)")
+    except Exception as e:
+        logger.warning(f"  Daily digest: failed to start ({e})")
+
+    logger.info("Memory ready.")
     logger.info("=" * 60)
 
     yield
 
     # Shutdown
-    logger.info("ContextEngine shutting down...")
+    logger.info("Memory shutting down...")
+    try:
+        from services.daily_digest import stop_scheduler as stop_digest
+        stop_digest()
+    except Exception:
+        pass
     if file_watcher:
         file_watcher.stop()
     processor = get_processor()
     processor.stop()
-    logger.info("ContextEngine shutdown complete.")
+    logger.info("Memory shutdown complete.")
 
 
 app = FastAPI(
-    title="ContextEngine",
-    description="Recursive context management system for Claude.",
-    version="0.3.0",
+    title="Memory",
+    description="Persistent memory system for LLM conversations.",
+    version="0.4.1",
     lifespan=lifespan,
 )
 
@@ -156,6 +169,9 @@ app.include_router(settings.router, tags=["Settings"])
 app.include_router(metrics.router, tags=["Metrics"])
 app.include_router(ingest.router, tags=["Ingest"])
 
+# MCP: served by separate mcp-memory-engine container (StreamableHTTP on port 8000)
+
+
 
 # Dashboard
 _static_dir = _Path(__file__).parent / "static"
@@ -175,8 +191,8 @@ async def dashboard():
 @app.get("/")
 async def root():
     return {
-        "service": "ContextEngine",
-        "version": "0.3.0",
+        "service": "Memory",
+        "version": "0.4.1",
         "phase": 6,
         "docs": "/docs",
     }

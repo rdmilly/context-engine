@@ -1,0 +1,26 @@
+# Memory MCP Server — StreamableHTTP transport
+# Standalone MCP server that proxies to the Memory REST API
+
+services:
+  mcp-memory-engine:
+    build: ./mcp
+    container_name: mcp-memory-engine
+    restart: unless-stopped
+    environment:
+      - MEMORY_API_URL=http://memory:9040
+    networks:
+      - memory-net
+      - mcp-network
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/8000' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  memory-net:
+    external: true
+    name: memory_memory-net
+  mcp-network:
+    external: true

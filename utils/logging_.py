@@ -1,4 +1,4 @@
-"""Structured logging setup for ContextEngine."""
+"""Structured logging setup for Memory."""
 
 import logging
 import sys
@@ -9,7 +9,7 @@ from config import LOGS_DIR
 
 def setup_logging(level: int = logging.INFO) -> logging.Logger:
     """Configure structured logging."""
-    logger = logging.getLogger("context-engine")
+    logger = logging.getLogger("memory")
     logger.setLevel(level)
 
     # Console handler

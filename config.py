@@ -1,4 +1,4 @@
-"""ContextEngine configuration.
+"""Memory configuration.
 
 All config comes from environment variables.
 Secrets injected via env_file from Infisical-sourced .env.
@@ -14,7 +14,7 @@ DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
 LEARNING_MODE = os.environ.get("LEARNING_MODE", "true").lower() == "true"
 
 # ─── ChromaDB ─────────────────────────────────────────────────
-CHROMADB_HOST = os.environ.get("CHROMADB_HOST", "context-engine-chromadb")
+CHROMADB_HOST = os.environ.get("CHROMADB_HOST", "memory-chromadb")
 CHROMADB_PORT = int(os.environ.get("CHROMADB_PORT", 8000))
 
 # ─── Data Paths (early, needed by KB config) ─────────────────

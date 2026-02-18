@@ -33,7 +33,7 @@ router = APIRouter()
 def _check_auth(api_key: Optional[str] = None, header_key: Optional[str] = None) -> bool:
     """Validate API key from header or query param."""
     import os
-    expected = os.environ.get("CONTEXT_ENGINE_API_KEY", "")
+    expected = os.environ.get("MEMORY_API_KEY", os.environ.get("CONTEXT_ENGINE_API_KEY", ""))
     if not expected:
         return True  # No key configured = open access (standalone mode)
 

@@ -1,0 +1,18 @@
+# Production overrides — NOT in git.
+# Docker Compose auto-merges this with docker-compose.yml.
+
+services:
+  context-engine:
+    env_file:
+      - /root/.secrets/context-engine.env
+    volumes:
+      - ce-data:/app/data
+      - /opt/projects/millyweb-kb:/data/kb
+      - /opt:/watch
+    networks:
+      - ce-network
+      - coolify
+
+networks:
+  coolify:
+    external: true

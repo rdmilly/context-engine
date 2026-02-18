@@ -105,12 +105,12 @@ async def get_stats():
                 else:
                     unprocessed_count += 1
             except: unprocessed_count += 1
-        for sf in sorted(SESSIONS_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)[:20]:
+        for sf in sorted(SESSIONS_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)[:50]:
             try:
                 sd = json.loads(sf.read_text(encoding="utf-8"))
                 p = sd.get("_processed")
                 is_skipped = isinstance(p, dict) and p.get("skipped", False)
-                recent_sessions.append({"session_id": sd.get("session_id", sf.stem), "significance": sd.get("significance", "unknown"), "processed": bool(p), "skipped": is_skipped, "summary_preview": (sd.get("summary") or "")[:120]})
+                recent_sessions.append({"session_id": sd.get("session_id", sf.stem), "significance": sd.get("significance", "unknown"), "processed": bool(p), "skipped": is_skipped, "created_at": sd.get("created_at", ""), "summary_preview": (sd.get("summary") or "")[:120]})
             except: pass
     except: pass
     chromadb_stats = chromadb_client.get_collection_stats() if chromadb_client.is_connected() else {}
