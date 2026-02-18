@@ -171,6 +171,7 @@ class WorkerProcessor:
             if not LEARNING_MODE and significance == "low":
                 logger.info(f"Worker: skipping low significance session {session_id}")
                 self.stats["skipped"] += 1
+                self._mark_skipped(session_file, session_id)
                 return
 
             # 2. Read current master context (IO — run in thread)
@@ -521,6 +522,24 @@ class WorkerProcessor:
             except Exception as e:
                 logger.error(f"Worker: failures write failed: {e}")
 
+
+    def _mark_skipped(self, session_file: str, session_id: str):
+        """Mark session file as skipped (low significance, not processed by LLM)."""  
+        try:
+            path = session_file
+            if not os.path.isabs(path):
+                path = os.path.join(SESSIONS_DIR, os.path.basename(path))
+            with open(path, 'r') as f:
+                data = json.load(f)
+            data['_processed'] = {
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'skipped': True,
+                'reason': 'low significance in non-learning mode',
+            }
+            with open(path, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.warning(f'Worker: failed to mark {session_id} as skipped: {e}')
     def _mark_processed(self, session_file: str, session_id: str, summary: dict, triage: dict):
         """Mark session file as processed by adding metadata."""
         try:

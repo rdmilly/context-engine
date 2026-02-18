@@ -1,4 +1,4 @@
-"""Internal endpoints: health, summary, stats."""
+"""Internal endpoints: health, summary, stats, cockpit, digest."""
 
 import time
 from pathlib import Path
@@ -20,7 +20,7 @@ _start_time = time.time()
 async def health():
     sessions_count = len(list(SESSIONS_DIR.glob("*.json"))) if SESSIONS_DIR.exists() else 0
     dm = get_degradation_manager()
-    return HealthResponse(status="healthy" if dm.level.value in ("full", "partial") else "degraded", version="0.4.0", chromadb_connected=chromadb_client.is_connected(), kb_accessible=kb_gateway.kb_accessible(), sessions_count=sessions_count, uptime_seconds=round(time.time() - _start_time, 1), learning_mode=LEARNING_MODE, degradation_level=dm.level.value)
+    return HealthResponse(status="healthy" if dm.level.value in ("full", "partial") else "degraded", version="0.4.1", chromadb_connected=chromadb_client.is_connected(), kb_accessible=kb_gateway.kb_accessible(), sessions_count=sessions_count, uptime_seconds=round(time.time() - _start_time, 1), learning_mode=LEARNING_MODE, degradation_level=dm.level.value)
 
 
 @router.get("/api/summary")
@@ -37,7 +37,6 @@ async def get_summary():
 
 
 def _get_watcher_stats() -> dict:
-    """Get file watcher stats if running."""
     try:
         from services.file_watcher import get_watcher
         w = get_watcher()
@@ -45,23 +44,73 @@ def _get_watcher_stats() -> dict:
     except Exception:
         return {"enabled": False}
 
+
+@router.get("/api/cockpit")
+async def get_cockpit():
+    """Serve the daily cockpit markdown for the dashboard."""
+    from services.cockpit import read_cockpit
+    content = read_cockpit()
+    if content is None:
+        return {"cockpit": None, "error": "Cockpit file not found"}
+    import os
+    cockpit_path = Path("/watch/data/working-kb/cockpit/daily-status.md")
+    mtime = None
+    try:
+        mtime = os.path.getmtime(cockpit_path)
+    except Exception:
+        pass
+    return {
+        "cockpit": content,
+        "last_modified": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime)) if mtime else None,
+        "size_bytes": len(content),
+    }
+
+
+@router.post("/api/digest/send")
+async def send_digest_now():
+    """Manually trigger the daily Telegram digest."""
+    from services.daily_digest import send_digest
+    result = send_digest()
+    return {"sent": result, "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+
+
+@router.get("/api/digest/preview")
+async def preview_digest():
+    """Preview the digest message without sending."""
+    from services.daily_digest import _build_digest_message
+    from services.cockpit import read_cockpit
+    cockpit = read_cockpit()
+    if not cockpit:
+        return {"error": "No cockpit data"}
+    message = _build_digest_message(cockpit)
+    return {"message": message, "length": len(message)}
+
+
 @router.get("/api/stats")
 async def get_stats():
     import json
-    sessions_count = processed_count = unprocessed_count = 0
+    sessions_count = processed_count = unprocessed_count = skipped_count = 0
     recent_sessions = []
     try:
         for f in SESSIONS_DIR.glob("*.json"):
             sessions_count += 1
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
-                if data.get("_processed"): processed_count += 1
-                else: unprocessed_count += 1
+                p = data.get("_processed")
+                if p:
+                    if isinstance(p, dict) and p.get("skipped"):
+                        skipped_count += 1
+                    else:
+                        processed_count += 1
+                else:
+                    unprocessed_count += 1
             except: unprocessed_count += 1
         for sf in sorted(SESSIONS_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)[:20]:
             try:
                 sd = json.loads(sf.read_text(encoding="utf-8"))
-                recent_sessions.append({"session_id": sd.get("session_id", sf.stem), "significance": sd.get("significance", "unknown"), "processed": bool(sd.get("_processed")), "summary_preview": (sd.get("summary") or "")[:120]})
+                p = sd.get("_processed")
+                is_skipped = isinstance(p, dict) and p.get("skipped", False)
+                recent_sessions.append({"session_id": sd.get("session_id", sf.stem), "significance": sd.get("significance", "unknown"), "processed": bool(p), "skipped": is_skipped, "summary_preview": (sd.get("summary") or "")[:120]})
             except: pass
     except: pass
     chromadb_stats = chromadb_client.get_collection_stats() if chromadb_client.is_connected() else {}
@@ -70,12 +119,10 @@ async def get_stats():
     try:
         from services.openrouter import get_client as _get_llm
         llm_stats = _get_llm().stats
-
     except Exception:
         llm_stats = {"calls": 0, "backend": "unknown"}
-
     return {
-        "sessions": {"total": sessions_count, "processed": processed_count, "unprocessed": unprocessed_count},
+        "sessions": {"total": sessions_count, "processed": processed_count, "skipped": skipped_count, "unprocessed": unprocessed_count},
         "sessions_total": sessions_count,
         "sessions_processed": processed_count,
         "sessions_unprocessed": unprocessed_count,
@@ -87,7 +134,6 @@ async def get_stats():
         "llm": llm_stats,
         "file_watcher": _get_watcher_stats(),
     }
-
 
 
 @router.get("/api/worker")
@@ -130,29 +176,6 @@ async def get_degradation_status():
     return get_degradation_manager().status
 
 
-@router.get("/api/credits")
-async def get_credits():
-    """Get current OpenRouter credit balance and usage."""
-    try:
-        from services.credit_tracker import fetch_credits
-        data = fetch_credits(force=True)
-        if data:
-            return data
-        return {"error": "Could not fetch credits (not using OpenRouter?)"}
-    except Exception as e:
-        return {"error": str(e)}
-
-
 @router.get("/api/setup/claude-desktop")
 async def claude_desktop_config():
     return {"config": {"mcpServers": {"context-engine": {"command": "python3", "args": ["<path-to>/mcp-bridge.py"], "env": {"CONTEXT_ENGINE_URL": "http://localhost:9040"}}}}}
-
-
-@router.get("/api/cockpit")
-async def get_cockpit():
-    """Serve the daily cockpit markdown for the dashboard."""
-    from services.cockpit import read_cockpit
-    content = read_cockpit()
-    if content is None:
-        return {"cockpit": None, "error": "Cockpit file not found"}
-    return {"cockpit": content, "last_modified": None}

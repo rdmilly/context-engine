@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ContextEngine Dashboard</title>
+    <title>Memory Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { font-family: 'Inter', system-ui, sans-serif; }
@@ -18,14 +18,24 @@
         pre { white-space: pre-wrap; word-break: break-word; }
         .fade-in { animation: fadeIn 0.2s ease-in; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .ck-project { background: #111827; border-radius: 0.5rem; padding: 1rem; margin-bottom: 0.75rem; border-left: 3px solid #374151; }
+        .ck-project.ck-green { border-left-color: #22c55e; }
+        .ck-project.ck-yellow { border-left-color: #eab308; }
+        .ck-project.ck-red { border-left-color: #ef4444; }
+        .ck-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; font-weight: 600; }
+        .ck-val { font-size: 0.85rem; color: #d1d5db; }
+        .ck-field { margin-bottom: 0.3rem; }
+        .ck-badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; }
+        .ck-badge-g { background: rgba(34,197,94,0.15); color: #4ade80; }
+        .ck-badge-y { background: rgba(234,179,8,0.15); color: #facc15; }
+        .ck-badge-r { background: rgba(239,68,68,0.15); color: #f87171; }
     </style>
 </head>
 <body class="bg-gray-950 text-gray-200 min-h-screen">
     <div class="max-w-6xl mx-auto px-4 py-6">
-        <!-- Header -->
         <div class="flex items-center justify-between mb-6">
             <div>
-                <h1 class="text-2xl font-bold text-white">ContextEngine</h1>
+                <h1 class="text-2xl font-bold text-white">Memory</h1>
                 <p class="text-sm text-gray-500" id="version-info">Loading...</p>
             </div>
             <div class="flex items-center gap-3">
@@ -33,8 +43,6 @@
                 <button onclick="refreshAll()" class="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700 text-sm">↻ Refresh</button>
             </div>
         </div>
-
-        <!-- Tabs -->
         <div class="flex gap-1 border-b border-gray-800 mb-6 overflow-x-auto">
             <button onclick="showTab('cockpit')" class="tab px-4 py-2 text-sm hover:text-white tab-active" id="tab-cockpit">🎯 Cockpit</button>
             <button onclick="showTab('overview')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-overview">Overview</button>
@@ -46,602 +54,99 @@
             <button onclick="showTab('backups')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-backups">Backups</button>
             <button onclick="showTab('settings')" class="tab px-4 py-2 text-sm hover:text-white" id="tab-settings">⚙ Settings</button>
         </div>
-
-        <!-- Tab Content -->
         <div id="content" class="fade-in"></div>
     </div>
-
 <script>
-const API = '';  // Same origin
+const API = '';
 let currentTab = 'cockpit';
+async function api(path, opts = {}) { try { const r = await fetch(API + path, opts); return await r.json(); } catch (e) { console.error(`API ${path}:`, e); return { error: e.message }; } }
+function showTab(tab) { currentTab = tab; document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active')); document.getElementById('tab-' + tab).classList.add('tab-active'); const content = document.getElementById('content'); content.innerHTML = '<p class="text-gray-500">Loading...</p>'; content.classList.remove('fade-in'); void content.offsetWidth; content.classList.add('fade-in'); window['load_' + tab](); }
+async function refreshAll() { await loadHeader(); window['load_' + currentTab](); }
+async function loadHeader() { const h = await api('/api/health'); if (h.error) { document.getElementById('health-badge').textContent = 'Offline'; document.getElementById('health-badge').className = 'px-3 py-1 rounded-full text-sm font-medium bg-red-900 text-red-300'; return; } document.getElementById('version-info').textContent = `v${h.version} \u00b7 ${h.sessions_count} sessions \u00b7 ${h.uptime_seconds > 3600 ? Math.floor(h.uptime_seconds/3600)+'h' : Math.floor(h.uptime_seconds/60)+'m'} uptime`; const badge = document.getElementById('health-badge'); badge.textContent = h.degradation_level.toUpperCase(); badge.className = `px-3 py-1 rounded-full text-sm font-medium ${h.degradation_level === 'full' ? 'bg-green-900/50 text-green-400' : h.degradation_level === 'partial' ? 'bg-yellow-900/50 text-yellow-400' : 'bg-red-900/50 text-red-400'}`; }
+function esc(s) { if (!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-async function api(path, opts = {}) {
-    try {
-        const r = await fetch(API + path, opts);
-        return await r.json();
-    } catch (e) {
-        console.error(`API ${path}:`, e);
-        return { error: e.message };
-    }
-}
-
-function showTab(tab) {
-    currentTab = tab;
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active'));
-    document.getElementById('tab-' + tab).classList.add('tab-active');
-    const content = document.getElementById('content');
-    content.innerHTML = '<p class="text-gray-500">Loading...</p>';
-    content.classList.remove('fade-in');
-    void content.offsetWidth;
-    content.classList.add('fade-in');
-    window['load_' + tab]();
-}
-
-async function refreshAll() {
-    await loadHeader();
-    window['load_' + currentTab]();
-}
-
-async function loadHeader() {
-    const h = await api('/api/health');
-    if (h.error) {
-        document.getElementById('health-badge').textContent = 'Offline';
-        document.getElementById('health-badge').className = 'px-3 py-1 rounded-full text-sm font-medium bg-red-900 text-red-300';
-        return;
-    }
-    document.getElementById('version-info').textContent = `v${h.version} · ${h.sessions_count} sessions · ${h.uptime_seconds > 3600 ? Math.floor(h.uptime_seconds/3600)+'h' : Math.floor(h.uptime_seconds/60)+'m'} uptime`;
-    const badge = document.getElementById('health-badge');
-    badge.textContent = h.degradation_level.toUpperCase();
-    badge.className = `px-3 py-1 rounded-full text-sm font-medium ${
-        h.degradation_level === 'full' ? 'bg-green-900/50 text-green-400' :
-        h.degradation_level === 'partial' ? 'bg-yellow-900/50 text-yellow-400' :
-        'bg-red-900/50 text-red-400'}`;
-}
-
-// ─── Overview ───────────────────────────────────────────
-// ─── Cockpit (Project Dashboard) ──────────────────────────
 async function load_cockpit() {
     const data = await api('/api/cockpit');
-    const el = document.getElementById('content');
-    if (!data || !data.cockpit) {
-        el.innerHTML = '<div class="bg-gray-900 rounded-lg p-6 text-center"><p class="text-gray-400">Cockpit data not available yet.</p><p class="text-sm text-gray-600 mt-2">It will be generated after the next session save.</p></div>';
-        return;
-    }
-    const md = data.cockpit;
-    el.innerHTML = '<div class="cockpit-view">' + renderCockpitMd(md) + '</div>';
+    if (!data.cockpit) { document.getElementById('content').innerHTML = '<div class="text-center py-12 text-gray-500"><p class="text-lg mb-2">No cockpit data yet</p><p class="text-sm">The cockpit updates automatically after each Memory session.</p></div>'; return; }
+    const lastMod = data.last_modified ? new Date(data.last_modified).toLocaleString() : 'unknown';
+    document.getElementById('content').innerHTML = `<div class="flex justify-between items-center mb-4"><div class="text-sm text-gray-500">Last updated: ${lastMod}</div><button onclick="load_cockpit()" class="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700 text-sm">\u21bb Refresh</button></div>${renderCockpitMd(data.cockpit)}`;
 }
-
 function renderCockpitMd(md) {
-    let html = md;
-    // Headers
-    html = html.replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold text-white mt-6 mb-2">$1</h3>');
-    html = html.replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold text-blue-400 mt-8 mb-3 pb-2 border-b border-gray-800">$1</h2>');
-    html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold text-white mb-1">$1</h1>');
-    // Bold
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="text-white">$1</strong>');
-    // Blockquote
-    html = html.replace(/^> (.+)$/gm, '<div class="border-l-4 border-blue-500 pl-4 py-1 my-2 text-gray-400 italic">$1</div>');
-    // Checkboxes
-    html = html.replace(/^- \[x\] (.+)$/gm, '<div class="flex items-center gap-2 py-0.5"><span class="text-green-400">\u2611</span> <span class="line-through text-gray-500">$1</span></div>');
-    html = html.replace(/^- \[ \] (.+)$/gm, '<div class="flex items-center gap-2 py-0.5"><span class="text-yellow-400">\u2610</span> <span>$1</span></div>');
-    // Health indicators
-    html = html.replace(/\u{1F7E2}/gu, '<span class="inline-block w-3 h-3 rounded-full bg-green-500 mr-1"></span>');
-    html = html.replace(/\u{1F7E1}/gu, '<span class="inline-block w-3 h-3 rounded-full bg-yellow-500 mr-1"></span>');
-    html = html.replace(/\u{1F534}/gu, '<span class="inline-block w-3 h-3 rounded-full bg-red-500 mr-1"></span>');
-    // Tables
-    html = html.replace(/^\|(.+)\|$/gm, function(match) {
-        const cells = match.split('|').filter(c => c.trim());
-        if (cells.every(c => /^[\s-:]+$/.test(c))) return '';
-        const tds = cells.map(c => '<td class="px-3 py-1.5 border-b border-gray-800">' + c.trim() + '</td>').join('');
-        return '<tr class="hover:bg-gray-900/50">' + tds + '</tr>';
-    });
-    html = html.replace(/(<tr[^>]*>.*<\/tr>\n?)+/g, '<div class="overflow-x-auto my-4"><table class="w-full text-sm bg-gray-900 rounded-lg overflow-hidden">$&</table></div>');
-    // Horizontal rules
-    html = html.replace(/^---$/gm, '<hr class="border-gray-800 my-4">');
-    // List items
-    html = html.replace(/^- (.+)$/gm, '<div class="flex gap-2 py-0.5"><span class="text-gray-600">\u2022</span> <span>$1</span></div>');
-    // Paragraphs — wrap remaining text lines
-    html = html.replace(/^(?!<[hd\u2022tHr]|$)(.+)$/gm, '<p class="text-gray-300 text-sm leading-relaxed">$1</p>');
-    return '<div class="bg-gray-900 rounded-lg p-6 space-y-1">' + html + '</div>';
+    const lines = md.split('\n'); let html = ''; let i = 0; let skip = false;
+    while (i < lines.length) {
+        const line = lines[i].trim();
+        if (!line || line === '---' || line.startsWith('# ') || line.startsWith('>')) { i++; skip = false; continue; }
+        if (line.startsWith('**Last Updated:') || line.startsWith('**Updated By:')) { i++; continue; }
+        if (line === '## HOW THIS WORKS') { skip = true; i++; continue; }
+        if (skip && !line.startsWith('## ')) { i++; continue; }
+        if (skip && line.startsWith('## ')) { skip = false; }
+        if (line.startsWith('## ')) { html += `<h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mt-6 mb-3 pb-2 border-b border-gray-800">${esc(line.slice(3))}</h2>`; i++; continue; }
+        if (line.startsWith('### ')) {
+            const title = line.slice(4); let cls = 'ck-green';
+            if (title.includes('\u26a0') || title.includes('\ud83d\udfe1')) cls = 'ck-yellow';
+            if (title.includes('\ud83d\udd34')) cls = 'ck-red';
+            let fields = []; i++;
+            while (i < lines.length) { const fl = lines[i].trim(); if (!fl || fl.startsWith('### ') || fl.startsWith('## ') || fl === '---') break; fields.push(fl); i++; }
+            html += renderProjectCard(title, fields, cls); continue;
+        }
+        if (line.startsWith('|')) { let tl = []; while (i < lines.length && lines[i].trim().startsWith('|')) { tl.push(lines[i].trim()); i++; } html += renderTable(tl); continue; }
+        if (line.startsWith('- [ ]') || line.startsWith('- [x]')) { let items = []; while (i < lines.length && (lines[i].trim().startsWith('- [ ]') || lines[i].trim().startsWith('- [x]'))) { items.push(lines[i].trim()); i++; } html += renderChecklist(items); continue; }
+        if (line.startsWith('- ')) { html += `<div class="text-sm text-gray-500 ml-2 mb-1">\u2022 ${esc(line.slice(2))}</div>`; i++; continue; }
+        html += `<p class="text-sm text-gray-400 mb-1">${esc(line)}</p>`; i++;
+    }
+    return html;
+}
+function renderProjectCard(title, fields, cls) {
+    let fhtml = '';
+    for (const f of fields) {
+        const m = f.match(/^\*\*(.+?):\*\*\s*(.+)$/);
+        if (m) { const label = m[1]; const val = m[2];
+            if (label.toLowerCase().includes('health')) { const bc = val.includes('Active') ? 'ck-badge-g' : (val.includes('Blocked') || val.includes('Down')) ? 'ck-badge-r' : 'ck-badge-y'; fhtml += `<div class="ck-field"><span class="ck-label">${esc(label)}:</span> <span class="ck-badge ${bc}">${esc(val)}</span></div>`; }
+            else { fhtml += `<div class="ck-field"><span class="ck-label">${esc(label)}:</span> <span class="ck-val">${esc(val)}</span></div>`; }
+        } else { fhtml += `<div class="ck-val text-xs">${esc(f)}</div>`; }
+    }
+    return `<div class="ck-project ${cls}"><h3 class="text-sm font-semibold text-white mb-2">${esc(title)}</h3>${fhtml}</div>`;
+}
+function renderTable(rows) {
+    if (rows.length < 2) return '';
+    const headers = rows[0].split('|').map(c => c.trim()).filter(Boolean);
+    const dataRows = rows.filter(r => !r.match(/^\|[\s-|]+$/)).slice(1);
+    let h = '<div class="bg-gray-900 rounded-lg overflow-hidden mb-3"><table class="w-full text-sm"><thead><tr class="border-b border-gray-700">';
+    for (const hd of headers) h += `<th class="py-2 px-3 text-left text-xs text-gray-500 uppercase">${esc(hd)}</th>`;
+    h += '</tr></thead><tbody>';
+    for (const row of dataRows) { const cells = row.split('|').map(c => c.trim()).filter(Boolean); h += '<tr class="border-b border-gray-800">'; for (const c of cells) { let cls = 'text-gray-300'; if (c.includes('Critical') || c.includes('High')) cls = 'text-red-400'; else if (c.includes('Medium')) cls = 'text-yellow-400'; else if (c.includes('Active') || c.includes('Low')) cls = 'text-green-400'; h += `<td class="py-1.5 px-3 text-xs ${cls}">${esc(c)}</td>`; } h += '</tr>'; }
+    h += '</tbody></table></div>'; return h;
+}
+function renderChecklist(items) {
+    let h = '<div class="bg-gray-900 rounded-lg p-3 mb-3">'; for (const item of items) { const checked = item.startsWith('- [x]'); const text = item.replace(/^- \[[ x]\] /, ''); h += `<div class="py-1 text-sm ${checked ? 'text-gray-600 line-through' : 'text-gray-300'}">${checked ? '\u2611' : '\u2610'} ${esc(text)}</div>`; } h += '</div>'; return h;
 }
 
 async function load_overview() {
-    const [health, deg, stats, bootstrap] = await Promise.all([
-        api('/api/health'), api('/api/degradation'), api('/api/stats'), api('/api/bootstrap/status')
-    ]);
-
-    const depCards = Object.entries(deg.dependencies || {}).map(([name, d]) => `
-        <div class="bg-gray-900 rounded-lg p-4">
-            <div class="flex justify-between items-center mb-2">
-                <span class="font-medium text-white">${name}</span>
-                <span class="${d.healthy ? 'text-green-400' : 'text-red-400'}">${d.healthy ? '● Healthy' : '● Down'}</span>
-            </div>
-            <div class="text-xs text-gray-500">
-                Circuit: <span class="circuit-${d.circuit_breaker}">${d.circuit_breaker}</span>
-                ${d.error ? `<br>Error: ${d.error}` : ''}
-            </div>
-        </div>
-    `).join('');
-
-    const collectionRows = Object.entries(bootstrap.chromadb_collections || {}).map(([name, count]) => `
-        <tr class="border-b border-gray-800">
-            <td class="py-1 pr-4 text-gray-400">${name}</td>
-            <td class="py-1 text-white">${count}</td>
-        </tr>
-    `).join('');
-
-    document.getElementById('content').innerHTML = `
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div class="bg-gray-900 rounded-lg p-4">
-                <div class="text-xs text-gray-500 uppercase mb-1">Sessions</div>
-                <div class="text-2xl font-bold text-white">${health.sessions_count || 0}</div>
-                <div class="text-xs text-gray-500">${bootstrap.session_files?.processed || 0} processed · ${bootstrap.session_files?.unprocessed || 0} queued</div>
-            </div>
-            <div class="bg-gray-900 rounded-lg p-4">
-                <div class="text-xs text-gray-500 uppercase mb-1">Cache</div>
-                <div class="text-2xl font-bold text-white">${deg.cache?.available ? '●' : '○'} ${deg.cache?.source || 'none'}</div>
-                <div class="text-xs text-gray-500">${deg.cache?.size_bytes ? (deg.cache.size_bytes/1024).toFixed(1) + ' KB' : 'empty'}${deg.cache?.age_seconds ? ' · ' + Math.floor(deg.cache.age_seconds) + 's old' : ''}</div>
-            </div>
-            <div class="bg-gray-900 rounded-lg p-4">
-                <div class="text-xs text-gray-500 uppercase mb-1">LLM Stats</div>
-                <div class="text-2xl font-bold text-white">${stats.llm?.calls || 0} calls</div>
-                <div class="text-xs text-gray-500">Backend: ${stats.llm?.backend || 'openrouter'} · $${(stats.llm?.estimated_cost || 0).toFixed(4)}</div>
-            </div>
-        </div>
-        <h3 class="text-sm font-medium text-gray-400 uppercase mb-3">Dependencies</h3>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">${depCards}</div>
-        <h3 class="text-sm font-medium text-gray-400 uppercase mb-3">ChromaDB Collections</h3>
-        <div class="bg-gray-900 rounded-lg p-4">
-            <table class="w-full text-sm"><tbody>${collectionRows}</tbody></table>
-        </div>
-        ${bootstrap.recommendation ? `<div class="mt-4 p-3 bg-blue-950/50 border border-blue-800 rounded text-sm text-blue-300">${bootstrap.recommendation}</div>` : ''}
-    `;
+    const [health, deg, stats, bootstrap] = await Promise.all([api('/api/health'), api('/api/degradation'), api('/api/stats'), api('/api/bootstrap/status')]);
+    const depCards = Object.entries(deg.dependencies || {}).map(([name, d]) => `<div class="bg-gray-900 rounded-lg p-4"><div class="flex justify-between items-center mb-2"><span class="font-medium text-white">${name}</span><span class="${d.healthy ? 'text-green-400' : 'text-red-400'}">${d.healthy ? '\u25cf Healthy' : '\u25cf Down'}</span></div><div class="text-xs text-gray-500">Circuit: <span class="circuit-${d.circuit_breaker}">${d.circuit_breaker}</span>${d.error ? '<br>Error: ' + d.error : ''}</div></div>`).join('');
+    const collectionRows = Object.entries(bootstrap.chromadb_collections || {}).map(([name, count]) => `<tr class="border-b border-gray-800"><td class="py-1 pr-4 text-gray-400">${name}</td><td class="py-1 text-white">${count}</td></tr>`).join('');
+    document.getElementById('content').innerHTML = `<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6"><div class="bg-gray-900 rounded-lg p-4"><div class="text-xs text-gray-500 uppercase mb-1">Sessions</div><div class="text-2xl font-bold text-white">${health.sessions_count || 0}</div><div class="text-xs text-gray-500">${bootstrap.session_files?.processed || 0} processed \u00b7 ${bootstrap.session_files?.unprocessed || 0} queued</div></div><div class="bg-gray-900 rounded-lg p-4"><div class="text-xs text-gray-500 uppercase mb-1">Cache</div><div class="text-2xl font-bold text-white">${deg.cache?.available ? '\u25cf' : '\u25cb'} ${deg.cache?.source || 'none'}</div><div class="text-xs text-gray-500">${deg.cache?.size_bytes ? (deg.cache.size_bytes/1024).toFixed(1) + ' KB' : 'empty'}${deg.cache?.age_seconds ? ' \u00b7 ' + Math.floor(deg.cache.age_seconds) + 's old' : ''}</div></div><div class="bg-gray-900 rounded-lg p-4"><div class="text-xs text-gray-500 uppercase mb-1">LLM Stats</div><div class="text-2xl font-bold text-white">${stats.llm?.calls || 0} calls</div><div class="text-xs text-gray-500">Backend: ${stats.llm?.backend || 'openrouter'} \u00b7 $${(stats.llm?.estimated_cost || 0).toFixed(4)}</div></div></div><h3 class="text-sm font-medium text-gray-400 uppercase mb-3">Dependencies</h3><div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">${depCards}</div><h3 class="text-sm font-medium text-gray-400 uppercase mb-3">ChromaDB Collections</h3><div class="bg-gray-900 rounded-lg p-4"><table class="w-full text-sm"><tbody>${collectionRows}</tbody></table></div>${bootstrap.recommendation ? '<div class="mt-4 p-3 bg-blue-950/50 border border-blue-800 rounded text-sm text-blue-300">' + bootstrap.recommendation + '</div>' : ''}`;
 }
-
-// ─── Master Context ─────────────────────────────────────
-async function load_context() {
-    const data = await api('/api/summary');
-    document.getElementById('content').innerHTML = `
-        <div class="flex justify-between items-center mb-3">
-            <div class="text-sm text-gray-500">~${data.tokens_estimate || 0} tokens · Degraded: ${data.degraded ? 'Yes' : 'No'}</div>
-        </div>
-        <div class="bg-gray-900 rounded-lg p-4">
-            <pre class="text-sm text-gray-300 leading-relaxed">${escHtml(data.summary || 'No context available')}</pre>
-        </div>
-    `;
-}
-
-// ─── Sessions ───────────────────────────────────────────
-async function load_sessions() {
-    const data = await api('/api/stats');
-    const sessions = data.recent_sessions || [];
-    const rows = sessions.map(s => `
-        <tr class="border-b border-gray-800 hover:bg-gray-900/50">
-            <td class="py-2 pr-4 font-mono text-xs text-blue-400">${s.session_id}</td>
-            <td class="py-2 pr-4 text-sm">${s.significance || '-'}</td>
-            <td class="py-2 pr-4 text-xs text-gray-500">${s.saved_at ? new Date(s.saved_at).toLocaleString() : '-'}</td>
-            <td class="py-2 text-xs">${s.processed ? '<span class="text-green-400">✓</span>' : '<span class="text-yellow-400">pending</span>'}</td>
-        </tr>
-    `).join('');
-
-    document.getElementById('content').innerHTML = `
-        <div class="mb-4 text-sm text-gray-500">Total: ${data.sessions?.total || 0} sessions (${data.sessions?.processed || 0} processed, ${data.sessions?.unprocessed || 0} pending)</div>
-        <div class="bg-gray-900 rounded-lg overflow-hidden">
-            <table class="w-full text-sm">
-                <thead><tr class="border-b border-gray-700 text-gray-500 text-xs uppercase">
-                    <th class="py-2 px-4 text-left">Session ID</th>
-                    <th class="py-2 text-left">Significance</th>
-                    <th class="py-2 text-left">Saved At</th>
-                    <th class="py-2 text-left">Status</th>
-                </tr></thead>
-                <tbody>${rows || '<tr><td colspan="4" class="py-4 text-center text-gray-500">No sessions yet</td></tr>'}</tbody>
-            </table>
-        </div>
-    `;
-}
-
-// ─── Archive Search ─────────────────────────────────────
-async function load_search() {
-    document.getElementById('content').innerHTML = `
-        <div class="flex gap-2 mb-4">
-            <input id="search-input" type="text" placeholder="Search archive..." class="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" onkeydown="if(event.key==='Enter')doSearch()">
-            <select id="search-collection" class="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm">
-                <option value="">All collections</option>
-                <option value="sessions">Sessions</option>
-                <option value="project_archive">Project Archive</option>
-                <option value="decisions">Decisions</option>
-                <option value="failures">Failures</option>
-                <option value="entities">Entities</option>
-                <option value="patterns">Patterns</option>
-            </select>
-            <button onclick="doSearch()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Search</button>
-        </div>
-        <div id="search-results" class="text-gray-500 text-sm">Enter a query and press Search</div>
-    `;
-}
-
-async function doSearch() {
-    const query = document.getElementById('search-input').value;
-    if (!query) return;
-    const col = document.getElementById('search-collection').value;
-    document.getElementById('search-results').innerHTML = '<p class="text-gray-500">Searching...</p>';
-
-    const params = new URLSearchParams({ query, limit: '10' });
-    if (col) params.append('collections', col);
-    const data = await api('/api/search?' + params);
-
-    if (!data.results || data.results.length === 0) {
-        document.getElementById('search-results').innerHTML = '<p class="text-gray-500">No results found</p>';
-        return;
-    }
-
-    const cards = data.results.map(r => `
-        <div class="bg-gray-900 rounded-lg p-4 mb-3">
-            <div class="flex justify-between items-start mb-2">
-                <span class="text-xs font-mono text-blue-400">${r.collection}</span>
-                <span class="text-xs text-gray-500">distance: ${r.distance?.toFixed(3) || '?'}</span>
-            </div>
-            <p class="text-sm text-gray-300 mb-2">${escHtml(r.content?.substring(0, 500) || '')}</p>
-            <div class="text-xs text-gray-600">${r.id || ''}</div>
-        </div>
-    `).join('');
-
-    document.getElementById('search-results').innerHTML = `
-        <div class="text-sm text-gray-500 mb-3">${data.results.length} results for "${escHtml(query)}"</div>
-        ${cards}
-    `;
-}
-
-// ─── Entities ───────────────────────────────────────────
-async function load_entities() {
-    document.getElementById('content').innerHTML = '<p class="text-gray-500">Loading entities...</p>';
-    const data = await api('/api/search?query=people+projects+services&collections=entities&limit=30');
-
-    if (!data.results) {
-        document.getElementById('content').innerHTML = '<p class="text-gray-500">No entities found</p>';
-        return;
-    }
-
-    const grouped = {};
-    data.results.forEach(r => {
-        const type = r.metadata?.type || 'unknown';
-        if (!grouped[type]) grouped[type] = [];
-        grouped[type].push(r);
-    });
-
-    let html = '';
-    for (const [type, entities] of Object.entries(grouped).sort()) {
-        const items = entities.map(e => `
-            <div class="bg-gray-800 rounded p-3">
-                <div class="font-medium text-white text-sm">${escHtml(e.metadata?.name || e.id)}</div>
-                <div class="text-xs text-gray-400 mt-1">${escHtml(e.content?.substring(0, 200) || '')}</div>
-                ${e.metadata?.relationships ? `<div class="text-xs text-blue-400 mt-1">→ ${escHtml(e.metadata.relationships)}</div>` : ''}
-            </div>
-        `).join('');
-        html += `
-            <div class="mb-6">
-                <h3 class="text-sm font-medium text-gray-400 uppercase mb-2">${type} (${entities.length})</h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">${items}</div>
-            </div>
-        `;
-    }
-
-    document.getElementById('content').innerHTML = html || '<p class="text-gray-500">No entities found</p>';
-}
-
-// ─── Nudges & Anomalies ─────────────────────────────────
-async function load_nudges() {
-    const [nudges, anomalies] = await Promise.all([
-        api('/api/nudges'), api('/api/anomalies')
-    ]);
-
-    const nudgeCards = (nudges.nudges || []).map(n => `
-        <div class="bg-gray-900 rounded-lg p-4 mb-2">
-            <div class="flex justify-between items-start">
-                <span class="text-xs px-2 py-0.5 rounded bg-blue-900/50 text-blue-300">${n.type || 'nudge'}</span>
-                <button onclick="dismissNudge('${escHtml(n.description?.substring(0,30) || '')}')" class="text-xs text-gray-600 hover:text-red-400">dismiss</button>
-            </div>
-            <p class="text-sm text-gray-300 mt-2">${escHtml(n.description || '')}</p>
-            ${n.evidence ? `<p class="text-xs text-gray-500 mt-1">${escHtml(n.evidence)}</p>` : ''}
-        </div>
-    `).join('') || '<p class="text-gray-500 text-sm">No active nudges</p>';
-
-    const anomalyCards = (anomalies.anomalies || []).map(a => `
-        <div class="bg-gray-900 rounded-lg p-4 mb-2 border-l-2 ${
-            a.severity === 'critical' ? 'border-red-500' :
-            a.severity === 'high' ? 'border-orange-500' :
-            a.severity === 'medium' ? 'border-yellow-500' : 'border-gray-600'}">
-            <div class="flex justify-between items-start">
-                <span class="text-xs px-2 py-0.5 rounded ${
-                    a.severity === 'critical' ? 'bg-red-900/50 text-red-300' :
-                    a.severity === 'high' ? 'bg-orange-900/50 text-orange-300' :
-                    'bg-yellow-900/50 text-yellow-300'}">${(a.severity || '').toUpperCase()} / ${a.type || 'anomaly'}</span>
-                <button onclick="dismissAnomaly('${escHtml(a.description?.substring(0,30) || '')}')" class="text-xs text-gray-600 hover:text-red-400">dismiss</button>
-            </div>
-            <p class="text-sm text-gray-300 mt-2">${escHtml(a.description || '')}</p>
-            ${a.evidence ? `<p class="text-xs text-gray-500 mt-1">Evidence: ${escHtml(a.evidence)}</p>` : ''}
-        </div>
-    `).join('') || '<p class="text-gray-500 text-sm">No active anomalies</p>';
-
-    document.getElementById('content').innerHTML = `
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-                <h3 class="text-sm font-medium text-gray-400 uppercase mb-3">Nudges (${nudges.stats?.active || 0} active)</h3>
-                ${nudgeCards}
-            </div>
-            <div>
-                <h3 class="text-sm font-medium text-gray-400 uppercase mb-3">Anomalies (${anomalies.stats?.active || 0} active)</h3>
-                ${anomalyCards}
-            </div>
-        </div>
-    `;
-}
-
-async function dismissNudge(desc) {
-    await api('/api/nudges/dismiss', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({description: desc}) });
-    load_nudges();
-}
-async function dismissAnomaly(desc) {
-    await api('/api/anomalies/dismiss', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({description: desc}) });
-    load_nudges();
-}
-
-// ─── Backups ────────────────────────────────────────────
-async function load_backups() {
-    const data = await api('/api/backup/list');
-    const rows = (data.backups || []).map(b => `
-        <tr class="border-b border-gray-800 hover:bg-gray-900/50">
-            <td class="py-2 pr-4 font-mono text-xs text-white">${b.name}</td>
-            <td class="py-2 pr-4 text-xs text-gray-400">${b.components?.join(', ') || '-'}</td>
-            <td class="py-2 pr-4 text-xs text-gray-500">${(b.size_bytes/1024).toFixed(1)} KB</td>
-            <td class="py-2 text-xs">
-                <span class="${b.location?.includes('minio') ? 'text-green-400' : 'text-gray-500'}">${b.location || 'local'}</span>
-            </td>
-        </tr>
-    `).join('');
-
-    document.getElementById('content').innerHTML = `
-        <div class="flex justify-between items-center mb-4">
-            <div class="text-sm text-gray-500">${data.count || 0} backups · MinIO: ${data.minio_available ? '<span class="text-green-400">connected</span>' : '<span class="text-gray-500">unavailable</span>'}</div>
-            <button onclick="createBackup()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Create Backup</button>
-        </div>
-        <div class="bg-gray-900 rounded-lg overflow-hidden">
-            <table class="w-full text-sm">
-                <thead><tr class="border-b border-gray-700 text-gray-500 text-xs uppercase">
-                    <th class="py-2 px-4 text-left">Name</th>
-                    <th class="py-2 text-left">Components</th>
-                    <th class="py-2 text-left">Size</th>
-                    <th class="py-2 text-left">Location</th>
-                </tr></thead>
-                <tbody>${rows || '<tr><td colspan="4" class="py-4 text-center text-gray-500">No backups yet</td></tr>'}</tbody>
-            </table>
-        </div>
-    `;
-}
-
-async function createBackup() {
-    const btn = event.target;
-    btn.textContent = 'Creating...';
-    btn.disabled = true;
-    const result = await api('/api/backup/create', { method: 'POST' });
-    btn.textContent = 'Create Backup';
-    btn.disabled = false;
-    load_backups();
-}
-
-// ─── Helpers ────────────────────────────────────────────
-
-// ─── Settings ───────────────────────────────────────────
-async function load_settings() {
-    const [settings, presets] = await Promise.all([
-        api('/api/settings'),
-        api('/api/settings/presets'),
-    ]);
-    const llm = settings.llm || {};
-    const watcher = settings.watcher || {};
-    const notif = settings.notifications || {};
-    const presetOpts = (presets.presets || []).map(p => 
-        `<option value="${p.name}" data-url="${p.base_url}" data-fast="${p.suggested_fast}" data-smart="${p.suggested_smart}" data-key="${p.needs_key}">${p.name} — ${p.description}</option>`
-    ).join('');
-
-    const watchDirRows = (watcher.watch_dirs || []).map((d, i) =>
-        `<div class="flex items-center gap-2 mb-2">
-            <input type="text" value="${escHtml(d)}" class="watch-dir flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white font-mono" />
-            <button onclick="removeWatchDir(${i})" class="text-red-400 hover:text-red-300 text-sm px-2">✕</button>
-        </div>`
-    ).join('');
-
-    document.getElementById('content').innerHTML = `
-        <div class="space-y-6">
-            <!-- LLM Provider -->
-            <div class="bg-gray-900 rounded-lg p-5">
-                <h3 class="text-lg font-semibold text-white mb-1">LLM Provider</h3>
-                <p class="text-xs text-gray-500 mb-4">Any OpenAI-compatible API works — OpenRouter, OpenAI, Ollama, Together, Groq, LM Studio, etc.</p>
-                
-                <div class="mb-4">
-                    <label class="block text-xs text-gray-400 mb-1">Quick Setup — Pick a Provider</label>
-                    <select id="llm-preset" onchange="applyPreset(this)" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white">
-                        <option value="">Custom configuration</option>
-                        ${presetOpts}
-                    </select>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs text-gray-400 mb-1">API Base URL</label>
-                        <input id="llm-url" type="text" value="${escHtml(llm.base_url)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
-                    </div>
-                    <div>
-                        <label class="block text-xs text-gray-400 mb-1">API Key ${llm.api_key_set ? '<span class="text-green-400">✓ set</span>' : '<span class="text-yellow-400">not set</span>'}</label>
-                        <input id="llm-key" type="password" placeholder="${llm.api_key_set ? '••••••• (leave empty to keep current)' : 'Enter API key'}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
-                    </div>
-                    <div>
-                        <label class="block text-xs text-gray-400 mb-1">Fast Model <span class="text-gray-600">(extraction, summaries, nudges)</span></label>
-                        <input id="llm-fast" type="text" value="${escHtml(llm.model_fast)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
-                    </div>
-                    <div>
-                        <label class="block text-xs text-gray-400 mb-1">Smart Model <span class="text-gray-600">(triage, compression, patterns)</span></label>
-                        <input id="llm-smart" type="text" value="${escHtml(llm.model_smart)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
-                    </div>
-                </div>
-                <div class="flex gap-3 mt-4">
-                    <button onclick="saveLLM()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Save LLM Settings</button>
-                    <button onclick="testLLM()" id="btn-test-llm" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm text-white">Test Connection</button>
-                    <span id="llm-status" class="text-sm py-2"></span>
-                </div>
-            </div>
-
-            <!-- File Watcher -->
-            <div class="bg-gray-900 rounded-lg p-5">
-                <div class="flex items-center justify-between mb-1">
-                    <h3 class="text-lg font-semibold text-white">File Watcher</h3>
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <span class="text-xs text-gray-400">${watcher.enabled ? 'Active' : 'Disabled'}</span>
-                        <input id="watcher-enabled" type="checkbox" ${watcher.enabled ? 'checked' : ''} class="w-4 h-4 rounded" />
-                    </label>
-                </div>
-                <p class="text-xs text-gray-500 mb-4">Auto-commits infrastructure changes to git and feeds them into the context pipeline.</p>
-                
-                <div class="mb-4">
-                    <label class="block text-xs text-gray-400 mb-2">Watch Directories</label>
-                    <div id="watch-dirs">${watchDirRows || '<p class="text-xs text-gray-600">No directories configured</p>'}</div>
-                    <button onclick="addWatchDir()" class="text-blue-400 hover:text-blue-300 text-sm mt-1">+ Add directory</button>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div>
-                        <label class="block text-xs text-gray-400 mb-1">Git Root</label>
-                        <input id="watcher-git-root" type="text" value="${escHtml(watcher.git_root)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
-                    </div>
-                    <div>
-                        <label class="block text-xs text-gray-400 mb-1">Transcript Drop Zone</label>
-                        <input id="watcher-transcript" type="text" value="${escHtml(watcher.transcript_dir)}" placeholder="/watch/transcripts" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
-                    </div>
-                    <div>
-                        <label class="block text-xs text-gray-400 mb-1">Debounce (seconds)</label>
-                        <input id="watcher-debounce" type="number" value="${watcher.debounce_seconds || 10}" min="1" max="120" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white" />
-                    </div>
-                </div>
-                <button onclick="saveWatcher()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Save Watcher Settings</button>
-                <span id="watcher-status" class="text-sm py-2 ml-3"></span>
-            </div>
-
-            <!-- Notifications -->
-            <div class="bg-gray-900 rounded-lg p-5">
-                <h3 class="text-lg font-semibold text-white mb-1">Notifications</h3>
-                <p class="text-xs text-gray-500 mb-4">Get Telegram alerts for significant infrastructure changes.</p>
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                        <label class="block text-xs text-gray-400 mb-1">Telegram Bot Token ${notif.telegram_bot_token_set ? '<span class="text-green-400">✓ set</span>' : ''}</label>
-                        <input id="tg-token" type="password" placeholder="${notif.telegram_bot_token_set ? '••••••• (leave empty to keep)' : 'Bot token from @BotFather'}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
-                    </div>
-                    <div>
-                        <label class="block text-xs text-gray-400 mb-1">Chat ID</label>
-                        <input id="tg-chat" type="text" value="${escHtml(notif.telegram_chat_id)}" placeholder="Your Telegram chat ID" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" />
-                    </div>
-                </div>
-                <div class="flex gap-3">
-                    <button onclick="saveNotifications()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Save</button>
-                    <button onclick="testTelegram()" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm text-white">Send Test</button>
-                    <span id="notif-status" class="text-sm py-2"></span>
-                </div>
-            </div>
-
-            <div class="text-xs text-gray-600 text-right">Last updated: ${settings.updated_at ? new Date(settings.updated_at).toLocaleString() : 'never'}</div>
-        </div>
-    `;
-}
-
-function applyPreset(select) {
-    const opt = select.selectedOptions[0];
-    if (!opt || !opt.dataset.url) return;
-    document.getElementById('llm-url').value = opt.dataset.url;
-    document.getElementById('llm-fast').value = opt.dataset.fast;
-    document.getElementById('llm-smart').value = opt.dataset.smart;
-    if (opt.dataset.key === 'false') {
-        document.getElementById('llm-key').placeholder = 'Not needed for this provider';
-    }
-}
-
-async function saveLLM() {
-    const data = { llm: {
-        base_url: document.getElementById('llm-url').value,
-        model_fast: document.getElementById('llm-fast').value,
-        model_smart: document.getElementById('llm-smart').value,
-    }};
-    const key = document.getElementById('llm-key').value;
-    if (key) data.llm.api_key = key;
-    const r = await api('/api/settings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
-    document.getElementById('llm-status').innerHTML = r.status === 'saved' ? '<span class="text-green-400">✓ Saved</span>' : '<span class="text-red-400">Error</span>';
-}
-
-async function testLLM() {
-    const btn = document.getElementById('btn-test-llm');
-    const status = document.getElementById('llm-status');
-    btn.textContent = 'Testing...'; btn.disabled = true;
-    const r = await api('/api/settings/test-llm', { method: 'POST' });
-    btn.textContent = 'Test Connection'; btn.disabled = false;
-    if (r.status === 'connected') {
-        status.innerHTML = `<span class="text-green-400">✓ Connected — ${escHtml(r.model)} responded (${r.tokens?.total_tokens || '?'} tokens)</span>`;
-    } else {
-        status.innerHTML = `<span class="text-red-400">✗ ${escHtml(r.message)}</span>`;
-    }
-}
-
-function addWatchDir() {
-    const container = document.getElementById('watch-dirs');
-    const div = document.createElement('div');
-    div.className = 'flex items-center gap-2 mb-2';
-    div.innerHTML = `<input type="text" value="" placeholder="/path/to/watch" class="watch-dir flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white font-mono" />
-        <button onclick="this.parentElement.remove()" class="text-red-400 hover:text-red-300 text-sm px-2">✕</button>`;
-    container.appendChild(div);
-}
-
-function removeWatchDir(idx) {
-    const dirs = document.querySelectorAll('.watch-dir');
-    if (dirs[idx]) dirs[idx].parentElement.remove();
-}
-
-async function saveWatcher() {
-    const dirs = Array.from(document.querySelectorAll('.watch-dir')).map(i => i.value).filter(v => v);
-    const data = { watcher: {
-        enabled: document.getElementById('watcher-enabled').checked,
-        watch_dirs: dirs,
-        git_root: document.getElementById('watcher-git-root').value,
-        transcript_dir: document.getElementById('watcher-transcript').value,
-        debounce_seconds: parseInt(document.getElementById('watcher-debounce').value) || 10,
-    }};
-    const r = await api('/api/settings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
-    document.getElementById('watcher-status').innerHTML = r.status === 'saved' ? '<span class="text-green-400">✓ Saved & restarted</span>' : '<span class="text-red-400">Error</span>';
-}
-
-async function saveNotifications() {
-    const data = { notifications: {
-        telegram_enabled: true,
-        telegram_chat_id: document.getElementById('tg-chat').value,
-    }};
-    const token = document.getElementById('tg-token').value;
-    if (token) data.notifications.telegram_bot_token = token;
-    const r = await api('/api/settings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
-    document.getElementById('notif-status').innerHTML = r.status === 'saved' ? '<span class="text-green-400">✓ Saved</span>' : '<span class="text-red-400">Error</span>';
-}
-
-async function testTelegram() {
-    const status = document.getElementById('notif-status');
-    status.innerHTML = '<span class="text-gray-400">Sending...</span>';
-    const r = await api('/api/settings/test-telegram', { method: 'POST' });
-    status.innerHTML = r.status === 'sent' ? '<span class="text-green-400">✓ Sent!</span>' : `<span class="text-red-400">✗ ${escHtml(r.message)}</span>`;
-}
-function escHtml(s) {
-    if (!s) return '';
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// ─── Init ───────────────────────────────────────────────
-loadHeader();
-load_cockpit();
-setInterval(loadHeader, 30000);
+async function load_context() { const data = await api('/api/summary'); document.getElementById('content').innerHTML = `<div class="flex justify-between items-center mb-3"><div class="text-sm text-gray-500">~${data.tokens_estimate || 0} tokens \u00b7 Degraded: ${data.degraded ? 'Yes' : 'No'}</div></div><div class="bg-gray-900 rounded-lg p-4"><pre class="text-sm text-gray-300 leading-relaxed">${esc(data.summary || 'No context available')}</pre></div>`; }
+async function load_sessions() { const data = await api('/api/stats'); const sessions = data.recent_sessions || []; const rows = sessions.map(s => `<tr class="border-b border-gray-800 hover:bg-gray-900/50"><td class="py-2 pr-4 font-mono text-xs text-blue-400">${s.session_id}</td><td class="py-2 pr-4 text-sm">${s.significance || '-'}</td><td class="py-2 pr-4 text-xs text-gray-500">${s.saved_at ? new Date(s.saved_at).toLocaleString() : '-'}</td><td class="py-2 text-xs">${s.processed ? '<span class="text-green-400">\u2713</span>' : '<span class="text-yellow-400">pending</span>'}</td></tr>`).join(''); document.getElementById('content').innerHTML = `<div class="mb-4 text-sm text-gray-500">Total: ${data.sessions?.total || 0} sessions (${data.sessions?.processed || 0} processed, ${data.sessions?.skipped || 0} skipped, ${data.sessions?.unprocessed || 0} pending)</div><div class="bg-gray-900 rounded-lg overflow-hidden"><table class="w-full text-sm"><thead><tr class="border-b border-gray-700 text-gray-500 text-xs uppercase"><th class="py-2 px-4 text-left">Session ID</th><th class="py-2 text-left">Significance</th><th class="py-2 text-left">Saved At</th><th class="py-2 text-left">Status</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="py-4 text-center text-gray-500">No sessions yet</td></tr>'}</tbody></table></div>`; }
+async function load_search() { document.getElementById('content').innerHTML = `<div class="flex gap-2 mb-4"><input id="search-input" type="text" placeholder="Search archive..." class="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" onkeydown="if(event.key==='Enter')doSearch()"><select id="search-collection" class="bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm"><option value="">All collections</option><option value="sessions">Sessions</option><option value="project_archive">Project Archive</option><option value="decisions">Decisions</option><option value="failures">Failures</option><option value="entities">Entities</option><option value="patterns">Patterns</option></select><button onclick="doSearch()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Search</button></div><div id="search-results" class="text-gray-500 text-sm">Enter a query and press Search</div>`; }
+async function doSearch() { const query = document.getElementById('search-input').value; if (!query) return; const col = document.getElementById('search-collection').value; document.getElementById('search-results').innerHTML = '<p class="text-gray-500">Searching...</p>'; const params = new URLSearchParams({ query, limit: '10' }); if (col) params.append('collections', col); const data = await api('/api/search?' + params); if (!data.results || data.results.length === 0) { document.getElementById('search-results').innerHTML = '<p class="text-gray-500">No results found</p>'; return; } const cards = data.results.map(r => `<div class="bg-gray-900 rounded-lg p-4 mb-3"><div class="flex justify-between items-start mb-2"><span class="text-xs font-mono text-blue-400">${r.collection}</span><span class="text-xs text-gray-500">distance: ${r.distance?.toFixed(3) || '?'}</span></div><p class="text-sm text-gray-300 mb-2">${esc(r.content?.substring(0, 500) || '')}</p><div class="text-xs text-gray-600">${r.id || ''}</div></div>`).join(''); document.getElementById('search-results').innerHTML = `<div class="text-sm text-gray-500 mb-3">${data.results.length} results for "${esc(query)}"</div>${cards}`; }
+async function load_entities() { document.getElementById('content').innerHTML = '<p class="text-gray-500">Loading entities...</p>'; const data = await api('/api/search?query=people+projects+services&collections=entities&limit=30'); if (!data.results) { document.getElementById('content').innerHTML = '<p class="text-gray-500">No entities found</p>'; return; } const grouped = {}; data.results.forEach(r => { const type = r.metadata?.type || 'unknown'; if (!grouped[type]) grouped[type] = []; grouped[type].push(r); }); let html = ''; for (const [type, entities] of Object.entries(grouped).sort()) { const items = entities.map(e => `<div class="bg-gray-800 rounded p-3"><div class="font-medium text-white text-sm">${esc(e.metadata?.name || e.id)}</div><div class="text-xs text-gray-400 mt-1">${esc(e.content?.substring(0, 200) || '')}</div>${e.metadata?.relationships ? '<div class="text-xs text-blue-400 mt-1">\u2192 ' + esc(e.metadata.relationships) + '</div>' : ''}</div>`).join(''); html += `<div class="mb-6"><h3 class="text-sm font-medium text-gray-400 uppercase mb-2">${type} (${entities.length})</h3><div class="grid grid-cols-1 md:grid-cols-2 gap-2">${items}</div></div>`; } document.getElementById('content').innerHTML = html || '<p class="text-gray-500">No entities found</p>'; }
+async function load_nudges() { const [nudges, anomalies] = await Promise.all([api('/api/nudges'), api('/api/anomalies')]); const nudgeCards = (nudges.nudges || []).map(n => `<div class="bg-gray-900 rounded-lg p-4 mb-2"><div class="flex justify-between items-start"><span class="text-xs px-2 py-0.5 rounded bg-blue-900/50 text-blue-300">${n.type || 'nudge'}</span><button onclick="dismissNudge('${esc(n.description?.substring(0,30) || '')}')" class="text-xs text-gray-600 hover:text-red-400">dismiss</button></div><p class="text-sm text-gray-300 mt-2">${esc(n.description || '')}</p>${n.evidence ? '<p class="text-xs text-gray-500 mt-1">' + esc(n.evidence) + '</p>' : ''}</div>`).join('') || '<p class="text-gray-500 text-sm">No active nudges</p>'; const anomalyCards = (anomalies.anomalies || []).map(a => `<div class="bg-gray-900 rounded-lg p-4 mb-2 border-l-2 ${a.severity === 'critical' ? 'border-red-500' : a.severity === 'high' ? 'border-orange-500' : a.severity === 'medium' ? 'border-yellow-500' : 'border-gray-600'}"><div class="flex justify-between items-start"><span class="text-xs px-2 py-0.5 rounded ${a.severity === 'critical' ? 'bg-red-900/50 text-red-300' : a.severity === 'high' ? 'bg-orange-900/50 text-orange-300' : 'bg-yellow-900/50 text-yellow-300'}">${(a.severity || '').toUpperCase()} / ${a.type || 'anomaly'}</span><button onclick="dismissAnomaly('${esc(a.description?.substring(0,30) || '')}')" class="text-xs text-gray-600 hover:text-red-400">dismiss</button></div><p class="text-sm text-gray-300 mt-2">${esc(a.description || '')}</p>${a.evidence ? '<p class="text-xs text-gray-500 mt-1">Evidence: ' + esc(a.evidence) + '</p>' : ''}</div>`).join('') || '<p class="text-gray-500 text-sm">No active anomalies</p>'; document.getElementById('content').innerHTML = `<div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div><h3 class="text-sm font-medium text-gray-400 uppercase mb-3">Nudges (${nudges.stats?.active || 0} active)</h3>${nudgeCards}</div><div><h3 class="text-sm font-medium text-gray-400 uppercase mb-3">Anomalies (${anomalies.stats?.active || 0} active)</h3>${anomalyCards}</div></div>`; }
+async function dismissNudge(desc) { await api('/api/nudges/dismiss', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({description: desc}) }); load_nudges(); }
+async function dismissAnomaly(desc) { await api('/api/anomalies/dismiss', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({description: desc}) }); load_nudges(); }
+async function load_backups() { const data = await api('/api/backup/list'); const rows = (data.backups || []).map(b => `<tr class="border-b border-gray-800 hover:bg-gray-900/50"><td class="py-2 pr-4 font-mono text-xs text-white">${b.name}</td><td class="py-2 pr-4 text-xs text-gray-400">${b.components?.join(', ') || '-'}</td><td class="py-2 pr-4 text-xs text-gray-500">${(b.size_bytes/1024).toFixed(1)} KB</td><td class="py-2 text-xs"><span class="${b.location?.includes('minio') ? 'text-green-400' : 'text-gray-500'}">${b.location || 'local'}</span></td></tr>`).join(''); document.getElementById('content').innerHTML = `<div class="flex justify-between items-center mb-4"><div class="text-sm text-gray-500">${data.count || 0} backups \u00b7 MinIO: ${data.minio_available ? '<span class="text-green-400">connected</span>' : '<span class="text-gray-500">unavailable</span>'}</div><button onclick="createBackup()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Create Backup</button></div><div class="bg-gray-900 rounded-lg overflow-hidden"><table class="w-full text-sm"><thead><tr class="border-b border-gray-700 text-gray-500 text-xs uppercase"><th class="py-2 px-4 text-left">Name</th><th class="py-2 text-left">Components</th><th class="py-2 text-left">Size</th><th class="py-2 text-left">Location</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="py-4 text-center text-gray-500">No backups yet</td></tr>'}</tbody></table></div>`; }
+async function createBackup() { const btn = event.target; btn.textContent = 'Creating...'; btn.disabled = true; await api('/api/backup/create', { method: 'POST' }); btn.textContent = 'Create Backup'; btn.disabled = false; load_backups(); }
+async function load_settings() { const [settings, presets] = await Promise.all([api('/api/settings'), api('/api/settings/presets')]); const llm = settings.llm || {}; const watcher = settings.watcher || {}; const notif = settings.notifications || {}; const presetOpts = (presets.presets || []).map(p => `<option value="${p.name}" data-url="${p.base_url}" data-fast="${p.suggested_fast}" data-smart="${p.suggested_smart}" data-key="${p.needs_key}">${p.name} \u2014 ${p.description}</option>`).join(''); const watchDirRows = (watcher.watch_dirs || []).map((d, i) => `<div class="flex items-center gap-2 mb-2"><input type="text" value="${esc(d)}" class="watch-dir flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white font-mono" /><button onclick="removeWatchDir(${i})" class="text-red-400 hover:text-red-300 text-sm px-2">\u2715</button></div>`).join(''); document.getElementById('content').innerHTML = `<div class="space-y-6"><div class="bg-gray-900 rounded-lg p-5"><h3 class="text-lg font-semibold text-white mb-1">LLM Provider</h3><p class="text-xs text-gray-500 mb-4">Any OpenAI-compatible API works.</p><div class="mb-4"><label class="block text-xs text-gray-400 mb-1">Quick Setup</label><select id="llm-preset" onchange="applyPreset(this)" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white"><option value="">Custom configuration</option>${presetOpts}</select></div><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label class="block text-xs text-gray-400 mb-1">API Base URL</label><input id="llm-url" type="text" value="${esc(llm.base_url)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" /></div><div><label class="block text-xs text-gray-400 mb-1">API Key ${llm.api_key_set ? '<span class="text-green-400">\u2713 set</span>' : '<span class="text-yellow-400">not set</span>'}</label><input id="llm-key" type="password" placeholder="${llm.api_key_set ? 'leave empty to keep' : 'Enter API key'}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" /></div><div><label class="block text-xs text-gray-400 mb-1">Fast Model</label><input id="llm-fast" type="text" value="${esc(llm.model_fast)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" /></div><div><label class="block text-xs text-gray-400 mb-1">Smart Model</label><input id="llm-smart" type="text" value="${esc(llm.model_smart)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" /></div></div><div class="flex gap-3 mt-4"><button onclick="saveLLM()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Save LLM Settings</button><button onclick="testLLM()" id="btn-test-llm" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm text-white">Test Connection</button><span id="llm-status" class="text-sm py-2"></span></div></div><div class="bg-gray-900 rounded-lg p-5"><div class="flex items-center justify-between mb-1"><h3 class="text-lg font-semibold text-white">File Watcher</h3><label class="flex items-center gap-2 cursor-pointer"><span class="text-xs text-gray-400">${watcher.enabled ? 'Active' : 'Disabled'}</span><input id="watcher-enabled" type="checkbox" ${watcher.enabled ? 'checked' : ''} class="w-4 h-4 rounded" /></label></div><p class="text-xs text-gray-500 mb-4">Auto-commits infrastructure changes to git.</p><div class="mb-4"><label class="block text-xs text-gray-400 mb-2">Watch Directories</label><div id="watch-dirs">${watchDirRows || '<p class="text-xs text-gray-600">No directories configured</p>'}</div><button onclick="addWatchDir()" class="text-blue-400 hover:text-blue-300 text-sm mt-1">+ Add directory</button></div><div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4"><div><label class="block text-xs text-gray-400 mb-1">Git Root</label><input id="watcher-git-root" type="text" value="${esc(watcher.git_root)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" /></div><div><label class="block text-xs text-gray-400 mb-1">Transcript Drop Zone</label><input id="watcher-transcript" type="text" value="${esc(watcher.transcript_dir)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" /></div><div><label class="block text-xs text-gray-400 mb-1">Debounce (seconds)</label><input id="watcher-debounce" type="number" value="${watcher.debounce_seconds || 10}" min="1" max="120" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white" /></div></div><button onclick="saveWatcher()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Save Watcher Settings</button><span id="watcher-status" class="text-sm py-2 ml-3"></span></div><div class="bg-gray-900 rounded-lg p-5"><h3 class="text-lg font-semibold text-white mb-1">Notifications</h3><p class="text-xs text-gray-500 mb-4">Get Telegram alerts for infrastructure changes.</p><div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4"><div><label class="block text-xs text-gray-400 mb-1">Telegram Bot Token ${notif.telegram_bot_token_set ? '<span class="text-green-400">\u2713 set</span>' : ''}</label><input id="tg-token" type="password" placeholder="${notif.telegram_bot_token_set ? 'leave empty to keep' : 'Bot token from @BotFather'}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" /></div><div><label class="block text-xs text-gray-400 mb-1">Chat ID</label><input id="tg-chat" type="text" value="${esc(notif.telegram_chat_id)}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white font-mono" /></div></div><div class="flex gap-3"><button onclick="saveNotifications()" class="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm text-white">Save</button><button onclick="testTelegram()" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm text-white">Send Test</button><span id="notif-status" class="text-sm py-2"></span></div></div></div>`; }
+function applyPreset(select) { const opt = select.selectedOptions[0]; if (!opt || !opt.dataset.url) return; document.getElementById('llm-url').value = opt.dataset.url; document.getElementById('llm-fast').value = opt.dataset.fast; document.getElementById('llm-smart').value = opt.dataset.smart; if (opt.dataset.key === 'false') document.getElementById('llm-key').placeholder = 'Not needed'; }
+async function saveLLM() { const data = { llm: { base_url: document.getElementById('llm-url').value, model_fast: document.getElementById('llm-fast').value, model_smart: document.getElementById('llm-smart').value }}; const key = document.getElementById('llm-key').value; if (key) data.llm.api_key = key; const r = await api('/api/settings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) }); document.getElementById('llm-status').innerHTML = r.status === 'saved' ? '<span class="text-green-400">\u2713 Saved</span>' : '<span class="text-red-400">Error</span>'; }
+async function testLLM() { const btn = document.getElementById('btn-test-llm'); const status = document.getElementById('llm-status'); btn.textContent = 'Testing...'; btn.disabled = true; const r = await api('/api/settings/test-llm', { method: 'POST' }); btn.textContent = 'Test Connection'; btn.disabled = false; if (r.status === 'connected') { status.innerHTML = `<span class="text-green-400">\u2713 Connected \u2014 ${esc(r.model)} (${r.tokens?.total_tokens || '?'} tokens)</span>`; } else { status.innerHTML = `<span class="text-red-400">\u2717 ${esc(r.message)}</span>`; } }
+function addWatchDir() { const c = document.getElementById('watch-dirs'); const d = document.createElement('div'); d.className = 'flex items-center gap-2 mb-2'; d.innerHTML = '<input type="text" value="" placeholder="/path/to/watch" class="watch-dir flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white font-mono" /><button onclick="this.parentElement.remove()" class="text-red-400 hover:text-red-300 text-sm px-2">\u2715</button>'; c.appendChild(d); }
+function removeWatchDir(idx) { const dirs = document.querySelectorAll('.watch-dir'); if (dirs[idx]) dirs[idx].parentElement.remove(); }
+async function saveWatcher() { const dirs = Array.from(document.querySelectorAll('.watch-dir')).map(i => i.value).filter(v => v); const data = { watcher: { enabled: document.getElementById('watcher-enabled').checked, watch_dirs: dirs, git_root: document.getElementById('watcher-git-root').value, transcript_dir: document.getElementById('watcher-transcript').value, debounce_seconds: parseInt(document.getElementById('watcher-debounce').value) || 10 }}; const r = await api('/api/settings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) }); document.getElementById('watcher-status').innerHTML = r.status === 'saved' ? '<span class="text-green-400">\u2713 Saved</span>' : '<span class="text-red-400">Error</span>'; }
+async function saveNotifications() { const data = { notifications: { telegram_enabled: true, telegram_chat_id: document.getElementById('tg-chat').value }}; const token = document.getElementById('tg-token').value; if (token) data.notifications.telegram_bot_token = token; const r = await api('/api/settings', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) }); document.getElementById('notif-status').innerHTML = r.status === 'saved' ? '<span class="text-green-400">\u2713 Saved</span>' : '<span class="text-red-400">Error</span>'; }
+async function testTelegram() { const status = document.getElementById('notif-status'); status.innerHTML = '<span class="text-gray-400">Sending...</span>'; const r = await api('/api/settings/test-telegram', { method: 'POST' }); status.innerHTML = r.status === 'sent' ? '<span class="text-green-400">\u2713 Sent!</span>' : `<span class="text-red-400">\u2717 ${esc(r.message)}</span>`; }
+loadHeader(); load_cockpit(); setInterval(loadHeader, 30000);
 </script>
 </body>
 </html>
